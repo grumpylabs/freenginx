@@ -13,15 +13,14 @@ X:var br = {&lt;br&gt;}
 
 
 X:template = "/" { !! "change_log"; }
-X:template = "change_log" { !! "section"; }
-X:template = "section" { !! "changes"; }
+X:template = "change_log" { !! "changes"; }
 
 
 X:template = "changes" {
     X:text {&#10;}
 
     !{substring(concat($conf/changes[@lang=$lang]/title,
-                       ../@title,
+                       //change_log/@title,
                        ' ', @ver,
                        '                                                    '),
                 1, $conf/changes[@lang=$lang]/length)}

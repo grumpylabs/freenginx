@@ -1600,14 +1600,9 @@ ngx_connection_error(ngx_connection_t *c, ngx_err_t err, char *text)
         || err == NGX_ENETDOWN
         || err == NGX_ENETUNREACH
         || err == NGX_EHOSTDOWN
-        || err == NGX_EHOSTUNREACH
-        || err == NGX_ENOBUFS)
+        || err == NGX_EHOSTUNREACH)
     {
         switch (c->log_error) {
-
-        case NGX_ERROR_DEBUG:
-            level = NGX_LOG_DEBUG;
-            break;
 
         case NGX_ERROR_IGNORE_EMSGSIZE:
         case NGX_ERROR_IGNORE_EINVAL:
@@ -1619,9 +1614,6 @@ ngx_connection_error(ngx_connection_t *c, ngx_err_t err, char *text)
         default:
             level = NGX_LOG_ERR;
         }
-
-    } else if (c->log_error == NGX_ERROR_DEBUG) {
-        level = NGX_LOG_DEBUG;
 
     } else {
         level = NGX_LOG_ALERT;

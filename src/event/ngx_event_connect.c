@@ -231,8 +231,7 @@ ngx_event_connect_peer(ngx_peer_connection_t *pc)
                 || err == NGX_ENETDOWN
                 || err == NGX_ENETUNREACH
                 || err == NGX_EHOSTDOWN
-                || err == NGX_EHOSTUNREACH
-                || err == NGX_ENOENT)
+                || err == NGX_EHOSTUNREACH)
             {
                 level = NGX_LOG_ERR;
 

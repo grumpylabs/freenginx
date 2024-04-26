@@ -1144,19 +1144,8 @@ ngx_quic_decrypt(ngx_quic_header_t *pkt, uint64_t *largest_pn)
         key_phase = (pkt->flags & NGX_QUIC_PKT_KPHASE) != 0;
 
         if (key_phase != pkt->key_phase) {
-            if (pkt->keys->next_key.client.ctx != NULL) {
-                secret = &pkt->keys->next_key.client;
-                pkt->key_update = 1;
-
-            } else {
-                /*
-                 * RFC 9001,  6.3. Timing of Receive Key Generation.
-                 *
-                 * Trial decryption to avoid timing side-channel.
-                 */
-                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, pkt->log, 0,
-                               "quic next key missing");
-            }
+            secret = &pkt->keys->next_key.client;
+            pkt->key_update = 1;
         }
     }
 

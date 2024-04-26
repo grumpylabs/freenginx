@@ -1,13 +1,13 @@
 
 VER =		$(shell grep 'define NGINX_VERSION' src/core/nginx.h	\
 			| sed -e 's/^.*"\(.*\)".*/\1/')
-NGINX =		freenginx-$(VER)
+NGINX =		nginx-$(VER)
 TEMP =		tmp
 
 CC =		cl
 OBJS =		objs.msvc8
-OPENSSL =	openssl-3.0.13
-ZLIB =		zlib-1.3.1
+OPENSSL =	openssl-3.0.11
+ZLIB =		zlib-1.3
 PCRE =		pcre2-10.39
 
 
@@ -34,7 +34,7 @@ export:
 
 
 RELEASE:
-	hg ci -m freenginx-$(VER)-RELEASE
+	hg ci -m nginx-$(VER)-RELEASE
 	hg tag -m "release-$(VER) tag" release-$(VER)
 
 	$(MAKE) -f misc/GNUmakefile release

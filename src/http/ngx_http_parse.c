@@ -106,8 +106,6 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
     u_char  c, ch, *p, *m;
     enum {
         sw_start = 0,
-        sw_newline,
-        sw_method_start,
         sw_method,
         sw_spaces_before_uri,
         sw_schema,
@@ -145,34 +143,9 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
         case sw_start:
             r->request_start = p;
 
-            if (ch == CR) {
-                state = sw_newline;
+            if (ch == CR || ch == LF) {
                 break;
             }
-
-            if (ch == LF) {
-                state = sw_method_start;
-                break;
-            }
-
-            if ((ch < 'A' || ch > 'Z') && ch != '_' && ch != '-') {
-                return NGX_HTTP_PARSE_INVALID_METHOD;
-            }
-
-            state = sw_method;
-            break;
-
-        case sw_newline:
-
-            if (ch == LF) {
-                state = sw_method_start;
-                break;
-            }
-
-            return NGX_HTTP_PARSE_INVALID_REQUEST;
-
-        case sw_method_start:
-            r->request_start = p;
 
             if ((ch < 'A' || ch > 'Z') && ch != '_' && ch != '-') {
                 return NGX_HTTP_PARSE_INVALID_METHOD;
@@ -2284,9 +2257,6 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_chunk_data;
-                break;
-            default:
-                ctx->skipped++;
             }
             break;
 
@@ -2328,9 +2298,6 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_trailer;
-                break;
-            default:
-                ctx->skipped++;
             }
             break;
 
@@ -2366,9 +2333,6 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_trailer;
-                break;
-            default:
-                ctx->skipped++;
             }
             break;
 
