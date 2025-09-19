@@ -68,14 +68,14 @@ ngx_quic_recvmsg(ngx_event_t *ev)
         iov[0].iov_base = (void *) buffer;
         iov[0].iov_len = sizeof(buffer);
 
-        msg.msg_name = &sa;
+        msg.msg_name = (void *) &sa;
         msg.msg_namelen = sizeof(ngx_sockaddr_t);
         msg.msg_iov = iov;
         msg.msg_iovlen = 1;
 
 #if (NGX_HAVE_ADDRINFO_CMSG)
         if (ls->wildcard) {
-            msg.msg_control = &msg_control;
+            msg.msg_control = (void *) &msg_control;
             msg.msg_controllen = sizeof(msg_control);
 
             ngx_memzero(&msg_control, sizeof(msg_control));
@@ -106,7 +106,7 @@ ngx_quic_recvmsg(ngx_event_t *ev)
         }
 #endif
 
-        sockaddr = msg.msg_name;
+        sockaddr = (void *) msg.msg_name;
         socklen = msg.msg_namelen;
 
         if (socklen > (socklen_t) sizeof(ngx_sockaddr_t)) {

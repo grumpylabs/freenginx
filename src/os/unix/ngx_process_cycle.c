@@ -619,9 +619,10 @@ ngx_reap_children(ngx_cycle_t *cycle)
                 ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx,
                                                        ngx_core_module);
 
-                if (ngx_rename_file((char *) ccf->oldpid.data,
-                                    (char *) ccf->pid.data)
-                    == NGX_FILE_ERROR)
+                if (ccf->pid.len
+                    && ngx_rename_file((char *) ccf->oldpid.data,
+                                       (char *) ccf->pid.data)
+                       == NGX_FILE_ERROR)
                 {
                     ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                                   ngx_rename_file_n " %s back to %s failed "
@@ -683,6 +684,7 @@ ngx_master_process_exit(ngx_cycle_t *cycle)
     ngx_exit_log.file = &ngx_exit_log_file;
     ngx_exit_log.next = NULL;
     ngx_exit_log.writer = NULL;
+    ngx_exit_log.limit = NULL;
 
     ngx_exit_cycle.log = &ngx_exit_log;
     ngx_exit_cycle.files = ngx_cycle->files;
@@ -983,6 +985,7 @@ ngx_worker_process_exit(ngx_cycle_t *cycle)
     ngx_exit_log.file = &ngx_exit_log_file;
     ngx_exit_log.next = NULL;
     ngx_exit_log.writer = NULL;
+    ngx_exit_log.limit = NULL;
 
     ngx_exit_cycle.log = &ngx_exit_log;
     ngx_exit_cycle.files = ngx_cycle->files;

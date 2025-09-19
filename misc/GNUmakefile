@@ -1,14 +1,14 @@
 
 VER =		$(shell grep 'define NGINX_VERSION' src/core/nginx.h	\
 			| sed -e 's/^.*"\(.*\)".*/\1/')
-NGINX =		nginx-$(VER)
+NGINX =		freenginx-$(VER)
 TEMP =		tmp
 
 CC =		cl
 OBJS =		objs.msvc8
-OPENSSL =	openssl-3.0.11
-ZLIB =		zlib-1.3
-PCRE =		pcre2-10.39
+OPENSSL =	openssl-3.0.17
+ZLIB =		zlib-1.3.1
+PCRE =		pcre2-10.45
 
 
 release: export
@@ -34,7 +34,7 @@ export:
 
 
 RELEASE:
-	hg ci -m nginx-$(VER)-RELEASE
+	hg ci -m freenginx-$(VER)-RELEASE
 	hg tag -m "release-$(VER) tag" release-$(VER)
 
 	$(MAKE) -f misc/GNUmakefile release
@@ -108,7 +108,7 @@ zip: export
 	cp -p $(OBJS)/lib/$(OPENSSL)/LICENSE.txt			\
 		$(TEMP)/$(NGINX)/docs/OpenSSL.LICENSE
 
-	cp -p $(OBJS)/lib/$(PCRE)/LICENCE				\
+	cp -p $(OBJS)/lib/$(PCRE)/LICENCE*				\
 		$(TEMP)/$(NGINX)/docs/PCRE.LICENCE
 
 	sed -ne '/^ (C) 1995-20/,/^  jloup@gzip\.org/p'			\

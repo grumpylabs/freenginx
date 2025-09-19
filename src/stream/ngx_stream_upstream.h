@@ -127,13 +127,17 @@ typedef struct {
     ngx_chain_t                       *downstream_busy;
 
     off_t                              received;
-    time_t                             start_sec;
     ngx_uint_t                         requests;
     ngx_uint_t                         responses;
     ngx_msec_t                         start_time;
 
     size_t                             upload_rate;
     size_t                             download_rate;
+
+    ngx_msec_t                         upload_last;
+    ngx_msec_t                         download_last;
+    off_t                              upload_excess;
+    off_t                              download_excess;
 
     ngx_str_t                          ssl_name;
 

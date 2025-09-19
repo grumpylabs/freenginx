@@ -119,6 +119,7 @@ ngx_mail_pop3_init_protocol(ngx_event_t *rev)
 void
 ngx_mail_pop3_auth_state(ngx_event_t *rev)
 {
+    size_t               n;
     ngx_int_t            rc;
     ngx_connection_t    *c;
     ngx_mail_session_t  *s;
@@ -191,6 +192,7 @@ ngx_mail_pop3_auth_state(ngx_event_t *rev)
 
             case NGX_POP3_QUIT:
                 s->quit = 1;
+                s->no_lingering_close = 1;
                 break;
 
             case NGX_POP3_NOOP:
@@ -221,6 +223,7 @@ ngx_mail_pop3_auth_state(ngx_event_t *rev)
 
             case NGX_POP3_QUIT:
                 s->quit = 1;
+                s->no_lingering_close = 1;
                 break;
 
             case NGX_POP3_NOOP:
@@ -259,10 +262,18 @@ ngx_mail_pop3_auth_state(ngx_event_t *rev)
         case ngx_pop3_auth_external:
             rc = ngx_mail_auth_external(s, c, 0);
             break;
+
+        case ngx_pop3_auth_xoauth2:
+            rc = ngx_mail_auth_xoauth2(s, c, 0);
+            break;
+
+        case ngx_pop3_auth_oauthbearer:
+            rc = ngx_mail_auth_oauthbearer(s, c, 0);
+            break;
         }
     }
 
-    if (s->buffer->pos < s->buffer->last) {
+    if (s->buffer->pos < s->buffer->last || c->read->ready) {
         s->blocked = 1;
     }
 
@@ -279,6 +290,8 @@ ngx_mail_pop3_auth_state(ngx_event_t *rev)
     case NGX_MAIL_PARSE_INVALID_COMMAND:
         s->mail_state = ngx_pop3_start;
         s->state = 0;
+        s->login.len = 0;
+        s->passwd.len = 0;
 
         ngx_str_set(&s->out, pop3_invalid_command);
 
@@ -291,6 +304,12 @@ ngx_mail_pop3_auth_state(ngx_event_t *rev)
         if (s->buffer->pos == s->buffer->last) {
             s->buffer->pos = s->buffer->start;
             s->buffer->last = s->buffer->start;
+
+        } else {
+            n = s->buffer->last - s->buffer->pos;
+            ngx_memmove(s->buffer->start, s->buffer->pos, n);
+            s->buffer->pos = s->buffer->start;
+            s->buffer->last = s->buffer->start + n;
         }
 
         if (s->state) {
@@ -510,6 +529,10 @@ ngx_mail_pop3_auth(ngx_mail_session_t *s, ngx_connection_t *c)
 
     case NGX_MAIL_AUTH_PLAIN:
 
+        if (s->args.nelts == 2) {
+            return ngx_mail_auth_plain(s, c, 1);
+        }
+
         ngx_str_set(&s->out, pop3_next);
         s->mail_state = ngx_pop3_auth_plain;
 
@@ -534,8 +557,44 @@ ngx_mail_pop3_auth(ngx_mail_session_t *s, ngx_connection_t *c)
             return NGX_MAIL_PARSE_INVALID_COMMAND;
         }
 
+        if (s->args.nelts == 2) {
+            return ngx_mail_auth_external(s, c, 1);
+        }
+
         ngx_str_set(&s->out, pop3_username);
         s->mail_state = ngx_pop3_auth_external;
+
+        return NGX_OK;
+
+    case NGX_MAIL_AUTH_XOAUTH2:
+
+        if (!(pscf->auth_methods & NGX_MAIL_AUTH_XOAUTH2_ENABLED)) {
+            return NGX_MAIL_PARSE_INVALID_COMMAND;
+        }
+
+        if (s->args.nelts == 2) {
+            s->mail_state = ngx_pop3_auth_xoauth2;
+            return ngx_mail_auth_xoauth2(s, c, 1);
+        }
+
+        ngx_str_set(&s->out, pop3_next);
+        s->mail_state = ngx_pop3_auth_xoauth2;
+
+        return NGX_OK;
+
+    case NGX_MAIL_AUTH_OAUTHBEARER:
+
+        if (!(pscf->auth_methods & NGX_MAIL_AUTH_OAUTHBEARER_ENABLED)) {
+            return NGX_MAIL_PARSE_INVALID_COMMAND;
+        }
+
+        if (s->args.nelts == 2) {
+            s->mail_state = ngx_pop3_auth_oauthbearer;
+            return ngx_mail_auth_oauthbearer(s, c, 1);
+        }
+
+        ngx_str_set(&s->out, pop3_next);
+        s->mail_state = ngx_pop3_auth_oauthbearer;
 
         return NGX_OK;
     }

@@ -822,7 +822,7 @@ ngx_http_script_add_copy_code(ngx_http_script_compile_t *sc, ngx_str_t *value,
         return NGX_ERROR;
     }
 
-    code->code = (ngx_http_script_code_pt) (void *)
+    code->code = (ngx_http_script_code_pt) (uintptr_t)
                                                  ngx_http_script_copy_len_code;
     code->len = len;
 
@@ -912,7 +912,7 @@ ngx_http_script_add_var_code(ngx_http_script_compile_t *sc, ngx_str_t *name)
         return NGX_ERROR;
     }
 
-    code->code = (ngx_http_script_code_pt) (void *)
+    code->code = (ngx_http_script_code_pt) (uintptr_t)
                                              ngx_http_script_copy_var_len_code;
     code->index = (uintptr_t) index;
 
@@ -1308,7 +1308,7 @@ ngx_http_script_add_capture_code(ngx_http_script_compile_t *sc, ngx_uint_t n)
         return NGX_ERROR;
     }
 
-    code->code = (ngx_http_script_code_pt) (void *)
+    code->code = (ngx_http_script_code_pt) (uintptr_t)
                                          ngx_http_script_copy_capture_len_code;
     code->n = 2 * n;
 
@@ -1423,7 +1423,7 @@ ngx_http_script_add_full_name_code(ngx_http_script_compile_t *sc)
         return NGX_ERROR;
     }
 
-    code->code = (ngx_http_script_code_pt) (void *)
+    code->code = (ngx_http_script_code_pt) (uintptr_t)
                                             ngx_http_script_full_name_len_code;
     code->conf_prefix = sc->conf_prefix;
 

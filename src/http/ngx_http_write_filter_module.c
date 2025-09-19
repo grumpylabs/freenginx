@@ -47,10 +47,11 @@ ngx_module_t  ngx_http_write_filter_module = {
 ngx_int_t
 ngx_http_write_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    off_t                      size, sent, nsent, limit;
+    off_t                      size, sent, excess, limit;
     ngx_uint_t                 last, flush, sync;
     ngx_msec_t                 delay;
     ngx_chain_t               *cl, *ln, **ll, *chain;
+    ngx_msec_int_t             ms;
     ngx_connection_t          *c;
     ngx_http_core_loc_conf_t  *clcf;
 
@@ -65,6 +66,10 @@ ngx_http_write_filter(ngx_http_request_t *r, ngx_chain_t *in)
     sync = 0;
     last = 0;
     ll = &r->out;
+
+#if (NGX_SUPPRESS_WARN)
+    excess = 0;
+#endif
 
     /* find the size, the flush point and the last link of the saved chain */
 
@@ -268,12 +273,19 @@ ngx_http_write_filter(ngx_http_request_t *r, ngx_chain_t *in)
             r->limit_rate_after_set = 1;
         }
 
-        limit = (off_t) r->limit_rate * (ngx_time() - r->start_sec + 1)
-                - (c->sent - r->limit_rate_after);
+        ms = (ngx_msec_int_t) (ngx_current_msec - r->limit_last);
+        ms = ngx_max(ms, 0);
+
+        excess = (off_t) (r->limit_excess
+                          - (uint64_t) r->limit_rate * ms / 1000);
+        excess = ngx_max(excess, 0);
+
+        limit = (off_t) r->limit_rate + (off_t) r->limit_rate_after - excess;
 
         if (limit <= 0) {
             c->write->delayed = 1;
-            delay = (ngx_msec_t) (- limit * 1000 / r->limit_rate + 1);
+            excess -= (off_t) r->limit_rate_after + (off_t) r->limit_rate / 2;
+            delay = (ngx_msec_t) (excess * 1000 / r->limit_rate + 1);
             ngx_add_timer(c->write, delay);
 
             c->buffered |= NGX_HTTP_WRITE_BUFFERED;
@@ -308,22 +320,15 @@ ngx_http_write_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     if (r->limit_rate) {
 
-        nsent = c->sent;
+        excess += (c->sent - sent);
 
-        if (r->limit_rate_after) {
+        r->limit_last = ngx_current_msec;
+        r->limit_excess = excess;
 
-            sent -= r->limit_rate_after;
-            if (sent < 0) {
-                sent = 0;
-            }
+        excess -= (off_t) r->limit_rate_after + (off_t) r->limit_rate / 2;
+        excess = ngx_max(excess, 0);
 
-            nsent -= r->limit_rate_after;
-            if (nsent < 0) {
-                nsent = 0;
-            }
-        }
-
-        delay = (ngx_msec_t) ((nsent - sent) * 1000 / r->limit_rate);
+        delay = (ngx_msec_t) (excess * 1000 / r->limit_rate);
 
         if (delay > 0) {
             c->write->delayed = 1;

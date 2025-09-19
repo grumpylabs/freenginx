@@ -81,6 +81,7 @@ typedef struct {
 #endif
     unsigned                   deferred_accept:1;
     unsigned                   reuseport:1;
+    unsigned                   multipath:1;
     unsigned                   so_keepalive:2;
     unsigned                   proxy_protocol:1;
 
@@ -197,6 +198,8 @@ typedef struct {
     ngx_bufs_t                  large_client_header_buffers;
 
     ngx_msec_t                  client_header_timeout;
+
+    ngx_uint_t                  max_headers;
 
     ngx_flag_t                  ignore_invalid_headers;
     ngx_flag_t                  merge_slashes;
@@ -356,6 +359,8 @@ struct ngx_http_core_loc_conf_s {
     off_t         directio_alignment;      /* directio_alignment */
 
     size_t        client_body_buffer_size; /* client_body_buffer_size */
+    size_t        client_body_min_rate;    /* client_body_min_rate */
+    size_t        send_min_rate;           /* send_min_rate */
     size_t        send_lowat;              /* send_lowat */
     size_t        postpone_output;         /* postpone_output */
     size_t        sendfile_max_chunk;      /* sendfile_max_chunk */

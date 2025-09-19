@@ -57,6 +57,7 @@ struct ngx_listening_s {
     unsigned            open:1;
     unsigned            remain:1;
     unsigned            ignore:1;
+    unsigned            reopen:1;
 
     unsigned            bound:1;       /* already bound */
     unsigned            inherited:1;   /* inherited from previous process */
@@ -72,6 +73,7 @@ struct ngx_listening_s {
 #endif
     unsigned            reuseport:1;
     unsigned            add_reuseport:1;
+    unsigned            multipath:1;
     unsigned            keepalive:2;
     unsigned            quic:1;
 
@@ -98,7 +100,8 @@ typedef enum {
     NGX_ERROR_INFO,
     NGX_ERROR_IGNORE_ECONNRESET,
     NGX_ERROR_IGNORE_EINVAL,
-    NGX_ERROR_IGNORE_EMSGSIZE
+    NGX_ERROR_IGNORE_EMSGSIZE,
+    NGX_ERROR_DEBUG
 } ngx_connection_log_error_e;
 
 
@@ -206,6 +209,7 @@ struct ngx_connection_s {
 #define ngx_set_connection_log(c, l)                                         \
                                                                              \
     c->log->file = l->file;                                                  \
+    c->log->limit = l->limit;                                                \
     c->log->next = l->next;                                                  \
     c->log->writer = l->writer;                                              \
     c->log->wdata = l->wdata;                                                \

@@ -39,6 +39,7 @@ static void ngx_http_terminate_handler(ngx_http_request_t *r);
 static void ngx_http_finalize_connection(ngx_http_request_t *r);
 static ngx_int_t ngx_http_set_write_handler(ngx_http_request_t *r);
 static void ngx_http_writer(ngx_http_request_t *r);
+static ngx_int_t ngx_http_send_min_rate(ngx_http_request_t *r, off_t sent);
 static void ngx_http_request_finalizer(ngx_http_request_t *r);
 
 static void ngx_http_set_keepalive(ngx_http_request_t *r);
@@ -560,7 +561,6 @@ static ngx_http_request_t *
 ngx_http_alloc_request(ngx_connection_t *c)
 {
     ngx_pool_t                 *pool;
-    ngx_time_t                 *tp;
     ngx_http_request_t         *r;
     ngx_http_connection_t      *hc;
     ngx_http_core_srv_conf_t   *cscf;
@@ -635,9 +635,7 @@ ngx_http_alloc_request(ngx_connection_t *c)
     r->main = r;
     r->count = 1;
 
-    tp = ngx_timeofday();
-    r->start_sec = tp->sec;
-    r->start_msec = tp->msec;
+    r->start_time = ngx_current_msec;
 
     r->method = NGX_HTTP_UNKNOWN;
     r->http_version = NGX_HTTP_VERSION_10;
@@ -1466,6 +1464,15 @@ ngx_http_process_request_headers(ngx_event_t *rev)
 
             /* a header line has been parsed successfully */
 
+            if (r->headers_in.count++ >= cscf->max_headers) {
+                r->lingering_close = 1;
+                ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                              "client sent too many header lines");
+                ngx_http_finalize_request(r,
+                                          NGX_HTTP_REQUEST_HEADER_TOO_LARGE);
+                break;
+            }
+
             h = ngx_list_push(&r->headers_in.headers);
             if (h == NULL) {
                 ngx_http_close_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -1622,16 +1629,6 @@ ngx_http_alloc_large_header_buffer(ngx_http_request_t *r,
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http alloc large header buffer");
-
-    if (request_line && r->state == 0) {
-
-        /* the client fills up the buffer with "\r\n" */
-
-        r->header_in->pos = r->header_in->start;
-        r->header_in->last = r->header_in->start;
-
-        return NGX_OK;
-    }
 
     old = request_line ? r->request_start : r->header_name_start;
 
@@ -1978,6 +1975,15 @@ ngx_http_process_request_header(ngx_http_request_t *r)
     }
 
     if (r->headers_in.content_length) {
+        if (r->headers_in.transfer_encoding) {
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                          "client sent \"Content-Length\" and "
+                          "\"Transfer-Encoding\" headers "
+                          "at the same time");
+            ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
+            return NGX_ERROR;
+        }
+
         r->headers_in.content_length_n =
                             ngx_atoof(r->headers_in.content_length->value.data,
                                       r->headers_in.content_length->value.len);
@@ -2003,15 +2009,6 @@ ngx_http_process_request_header(ngx_http_request_t *r)
             && ngx_strncasecmp(r->headers_in.transfer_encoding->value.data,
                                (u_char *) "chunked", 7) == 0)
         {
-            if (r->headers_in.content_length) {
-                ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                              "client sent \"Content-Length\" and "
-                              "\"Transfer-Encoding\" headers "
-                              "at the same time");
-                ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
-                return NGX_ERROR;
-            }
-
             r->headers_in.chunked = 1;
 
         } else {
@@ -2074,6 +2071,16 @@ ngx_http_process_request(ngx_http_request_t *r)
         sscf = ngx_http_get_module_srv_conf(r, ngx_http_ssl_module);
 
         if (sscf->verify) {
+
+            if (ngx_ssl_check_verify_context(c, &sscf->ssl) != NGX_OK) {
+                ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                              "client SSL certificate was negotiated "
+                              "with a different server name");
+
+                ngx_http_finalize_request(r, NGX_HTTP_MISDIRECTED_REQUEST);
+                return;
+            }
+
             rc = SSL_get_verify_result(c->ssl->connection);
 
             if (rc != X509_V_OK
@@ -2148,9 +2155,11 @@ ngx_http_validate_host(ngx_str_t *host, ngx_pool_t *pool, ngx_uint_t alloc)
     size_t   i, dot_pos, host_len;
 
     enum {
-        sw_usual = 0,
+        sw_start = 0,
+        sw_host,
+        sw_host_end,
         sw_literal,
-        sw_rest
+        sw_port
     } state;
 
     dot_pos = host->len;
@@ -2158,55 +2167,126 @@ ngx_http_validate_host(ngx_str_t *host, ngx_pool_t *pool, ngx_uint_t alloc)
 
     h = host->data;
 
-    state = sw_usual;
+    state = sw_start;
 
     for (i = 0; i < host->len; i++) {
         ch = h[i];
 
-        switch (ch) {
+        switch (state) {
 
-        case '.':
-            if (dot_pos == i - 1) {
-                return NGX_DECLINED;
-            }
-            dot_pos = i;
-            break;
+        case sw_start:
 
-        case ':':
-            if (state == sw_usual) {
-                host_len = i;
-                state = sw_rest;
-            }
-            break;
-
-        case '[':
-            if (i == 0) {
+            if (ch == '[') {
+                host_len = 0;
                 state = sw_literal;
-            }
-            break;
-
-        case ']':
-            if (state == sw_literal) {
-                host_len = i + 1;
-                state = sw_rest;
-            }
-            break;
-
-        default:
-
-            if (ngx_path_separator(ch)) {
-                return NGX_DECLINED;
+                break;
             }
 
-            if (ch <= 0x20 || ch == 0x7f) {
-                return NGX_DECLINED;
+            state = sw_host;
+
+            /* fall through */
+
+        case sw_host:
+
+            if (ch >= 'a' && ch <= 'z') {
+                break;
             }
 
             if (ch >= 'A' && ch <= 'Z') {
                 alloc = 1;
+                break;
             }
 
-            break;
+            if (ch >= '0' && ch <= '9') {
+                break;
+            }
+
+            if (ch == '.') {
+                if (dot_pos == i - 1) {
+                    return NGX_DECLINED;
+                }
+                dot_pos = i;
+                break;
+            }
+
+            if (ch == '-' || ch == '_' || ch == '~'
+                || ch == '!' || ch == '$' || ch == '&' || ch == '\''
+                || ch == '(' || ch == ')' || ch == '*' || ch == '+'
+                || ch == ',' || ch == ';' || ch == '=' || ch == '%')
+            {
+                /* unreserved, sub-delims, pct-encoded */
+                break;
+            }
+
+            /* fall through */
+
+        case sw_host_end:
+
+            host_len = i;
+
+            if (ch == ':') {
+                state = sw_port;
+                break;
+            }
+
+            /* notably, "/" and "\" are rejected */
+
+            return NGX_DECLINED;
+
+        case sw_literal:
+
+            if (ch >= '0' && ch <= '9') {
+                break;
+            }
+
+            if (ch >= 'a' && ch <= 'z') {
+                break;
+            }
+
+            if (ch >= 'A' && ch <= 'Z') {
+                alloc = 1;
+                break;
+            }
+
+            if (ch == ':') {
+                break;
+            }
+
+            if (ch == '.') {
+                if (dot_pos == i - 1) {
+                    return NGX_DECLINED;
+                }
+                dot_pos = i;
+                break;
+            }
+
+            if (ch == '-' || ch == '_' || ch == '~'
+                || ch == '!' || ch == '$' || ch == '&' || ch == '\''
+                || ch == '(' || ch == ')' || ch == '*' || ch == '+'
+                || ch == ',' || ch == ';' || ch == '=' || ch == '%')
+            {
+                /* unreserved, sub-delims, pct-encoded */
+                break;
+            }
+
+            if (ch == ']') {
+                host_len = i + 1;
+                state = sw_host_end;
+                break;
+            }
+
+            /* notably, "/" and "\" are rejected */
+
+            return NGX_DECLINED;
+
+        case sw_port:
+
+            if (ch >= '0' && ch <= '9') {
+                break;
+            }
+
+            return NGX_DECLINED;
+
         }
     }
 
@@ -2281,21 +2361,9 @@ ngx_http_set_virtual_server(ngx_http_request_t *r, ngx_str_t *host)
 #if (NGX_HTTP_SSL && defined SSL_CTRL_SET_TLSEXT_HOSTNAME)
 
     if (hc->ssl_servername) {
-        ngx_http_ssl_srv_conf_t  *sscf;
-
         if (rc == NGX_DECLINED) {
             cscf = hc->addr_conf->default_server;
             rc = NGX_OK;
-        }
-
-        sscf = ngx_http_get_module_srv_conf(cscf->ctx, ngx_http_ssl_module);
-
-        if (sscf->verify) {
-            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                          "client attempted to request the server name "
-                          "different from the one that was negotiated");
-            ngx_http_finalize_request(r, NGX_HTTP_MISDIRECTED_REQUEST);
-            return NGX_ERROR;
         }
     }
 
@@ -2772,13 +2840,12 @@ ngx_http_finalize_connection(ngx_http_request_t *r)
 
     if (r->main->count != 1) {
 
-        if (r->discard_body) {
+        if (r->discarding_body) {
             r->read_event_handler = ngx_http_discarded_request_body_handler;
             ngx_add_timer(r->connection->read, clcf->lingering_timeout);
 
             if (r->lingering_time == 0) {
-                r->lingering_time = ngx_time()
-                                      + (time_t) (clcf->lingering_time / 1000);
+                r->lingering_time = ngx_current_msec + clcf->lingering_time;
             }
         }
 
@@ -2830,7 +2897,7 @@ ngx_http_set_write_handler(ngx_http_request_t *r)
 
     r->http_state = NGX_HTTP_WRITING_REQUEST_STATE;
 
-    r->read_event_handler = r->discard_body ?
+    r->read_event_handler = r->discarding_body ?
                                 ngx_http_discarded_request_body_handler:
                                 ngx_http_test_reading;
     r->write_event_handler = ngx_http_writer;
@@ -2841,11 +2908,11 @@ ngx_http_set_write_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
-    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     if (!wev->delayed) {
-        ngx_add_timer(wev, clcf->send_timeout);
+        ngx_http_send_timeout(r, 0);
     }
 
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
         ngx_http_close_request(r, 0);
         return NGX_ERROR;
@@ -2858,6 +2925,7 @@ ngx_http_set_write_handler(ngx_http_request_t *r)
 static void
 ngx_http_writer(ngx_http_request_t *r)
 {
+    off_t                      sent;
     ngx_int_t                  rc;
     ngx_event_t               *wev;
     ngx_connection_t          *c;
@@ -2885,7 +2953,7 @@ ngx_http_writer(ngx_http_request_t *r)
                        "http writer delayed");
 
         if (!wev->delayed) {
-            ngx_add_timer(wev, clcf->send_timeout);
+            ngx_http_send_timeout(r, 0);
         }
 
         if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
@@ -2894,6 +2962,8 @@ ngx_http_writer(ngx_http_request_t *r)
 
         return;
     }
+
+    sent = c->sent;
 
     rc = ngx_http_output_filter(r, NULL);
 
@@ -2909,7 +2979,7 @@ ngx_http_writer(ngx_http_request_t *r)
     if (r->buffered || r->postponed || (r == r->main && c->buffered)) {
 
         if (!wev->delayed) {
-            ngx_add_timer(wev, clcf->send_timeout);
+            ngx_http_send_timeout(r, c->sent - sent);
         }
 
         if (ngx_handle_write_event(wev, clcf->send_lowat) != NGX_OK) {
@@ -2925,6 +2995,66 @@ ngx_http_writer(ngx_http_request_t *r)
     r->write_event_handler = ngx_http_request_empty_handler;
 
     ngx_http_finalize_request(r, rc);
+}
+
+
+void
+ngx_http_send_timeout(ngx_http_request_t *r, off_t sent)
+{
+    ngx_http_core_loc_conf_t  *clcf;
+
+    if (!ngx_http_send_min_rate(r, sent)) {
+        return;
+    }
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    ngx_add_timer(r->connection->write, clcf->send_timeout);
+}
+
+
+static ngx_int_t
+ngx_http_send_min_rate(ngx_http_request_t *r, off_t sent)
+{
+    ngx_msec_t                 now;
+    ngx_msec_int_t             ms;
+    ngx_connection_t          *c;
+    ngx_http_core_loc_conf_t  *clcf;
+
+    r = r->main;
+    c = r->connection;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    if (clcf->send_min_rate == 0) {
+        return (sent > 0 || !c->write->timer_set);
+    }
+
+    now = ngx_current_msec;
+
+    if (r->send_min_last == 0 || !c->write->timer_set) {
+        r->send_min_last = now;
+        r->send_min_excess = 0;
+        return 1;
+    }
+
+    ms = (ngx_msec_int_t) (now - r->send_min_last);
+    ms = ngx_max(ms, 0);
+
+    ngx_log_debug3(NGX_LOG_DEBUG_HTTP, c->log, 0,
+                   "http min rate: %O, %O, %M",
+                   sent, r->send_min_excess, ms);
+
+    if (r->send_min_excess + sent
+        > (off_t) clcf->send_min_rate * ms / 1000)
+    {
+        r->send_min_last = now;
+        r->send_min_excess = 0;
+        return 1;
+    }
+
+    r->send_min_excess += sent;
+
+    return 0;
 }
 
 
@@ -3100,6 +3230,7 @@ ngx_http_set_keepalive(ngx_http_request_t *r)
 {
     int                        tcp_nodelay;
     ngx_buf_t                 *b, *f;
+    ngx_msec_t                 timer;
     ngx_chain_t               *cl, *ln;
     ngx_event_t               *rev, *wev;
     ngx_connection_t          *c;
@@ -3300,10 +3431,19 @@ ngx_http_set_keepalive(ngx_http_request_t *r)
     r->http_state = NGX_HTTP_KEEPALIVE_STATE;
 #endif
 
-    c->idle = 1;
     ngx_reusable_connection(c, 1);
 
-    ngx_add_timer(rev, clcf->keepalive_timeout);
+    if (clcf->lingering_close
+        && clcf->lingering_timeout > 0)
+    {
+        timer = ngx_min(clcf->keepalive_timeout, clcf->lingering_timeout);
+        hc->keepalive_timeout = clcf->keepalive_timeout - timer;
+        ngx_add_timer(rev, timer);
+
+    } else {
+        c->idle = 1;
+        ngx_add_timer(rev, clcf->keepalive_timeout);
+    }
 
     if (rev->ready) {
         ngx_post_event(rev, &ngx_posted_events);
@@ -3314,16 +3454,32 @@ ngx_http_set_keepalive(ngx_http_request_t *r)
 static void
 ngx_http_keepalive_handler(ngx_event_t *rev)
 {
-    size_t             size;
-    ssize_t            n;
-    ngx_buf_t         *b;
-    ngx_connection_t  *c;
+    size_t                  size;
+    ssize_t                 n;
+    ngx_buf_t              *b;
+    ngx_connection_t       *c;
+    ngx_http_connection_t  *hc;
 
     c = rev->data;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0, "http keepalive handler");
 
-    if (rev->timedout || c->close) {
+    if (rev->timedout) {
+        if (c->idle || ngx_exiting) {
+            ngx_http_close_connection(c);
+            return;
+        }
+
+        hc = c->data;
+
+        c->idle = 1;
+        rev->timedout = 0;
+        ngx_add_timer(rev, hc->keepalive_timeout);
+
+        return;
+    }
+
+    if (c->close) {
         ngx_http_close_connection(c);
         return;
     }
@@ -3454,7 +3610,7 @@ ngx_http_set_lingering_close(ngx_connection_t *c)
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
     if (r->lingering_time == 0) {
-        r->lingering_time = ngx_time() + (time_t) (clcf->lingering_time / 1000);
+        r->lingering_time = ngx_current_msec + clcf->lingering_time;
     }
 
 #if (NGX_HTTP_SSL)
@@ -3496,6 +3652,10 @@ ngx_http_set_lingering_close(ngx_connection_t *c)
     }
 
     if (ngx_shutdown_socket(c->fd, NGX_WRITE_SHUTDOWN) == -1) {
+#if (defined __NetBSD__)
+        /* NetBSD returns EINVAL if the connection was reset */
+        c->log_error = NGX_ERROR_IGNORE_EINVAL;
+#endif
         ngx_connection_error(c, ngx_socket_errno,
                              ngx_shutdown_socket_n " failed");
         ngx_http_close_request(r, 0);
@@ -3534,7 +3694,7 @@ ngx_http_lingering_close_handler(ngx_event_t *rev)
         return;
     }
 
-    timer = (ngx_msec_t) r->lingering_time - (ngx_msec_t) ngx_time();
+    timer = r->lingering_time - ngx_current_msec;
     if ((ngx_msec_int_t) timer <= 0) {
         ngx_http_close_request(r, 0);
         return;
@@ -3562,8 +3722,6 @@ ngx_http_lingering_close_handler(ngx_event_t *rev)
     }
 
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
-
-    timer *= 1000;
 
     if (timer > clcf->lingering_timeout) {
         timer = clcf->lingering_timeout;

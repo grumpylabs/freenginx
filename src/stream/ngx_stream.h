@@ -55,6 +55,7 @@ typedef struct {
     unsigned                       ipv6only:1;
 #endif
     unsigned                       reuseport:1;
+    unsigned                       multipath:1;
     unsigned                       so_keepalive:2;
     unsigned                       proxy_protocol:1;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
@@ -201,8 +202,7 @@ struct ngx_stream_session_s {
     ngx_connection_t              *connection;
 
     off_t                          received;
-    time_t                         start_sec;
-    ngx_msec_t                     start_msec;
+    ngx_msec_t                     start_time;
 
     ngx_log_handler_pt             log_handler;
 
@@ -263,20 +263,20 @@ typedef struct {
 #define ngx_stream_delete_ctx(s, module)       s->ctx[module.ctx_index] = NULL;
 
 
-#define ngx_stream_get_module_main_conf(s, module)                             \
+#define ngx_stream_get_module_main_conf(s, module)                            \
     (s)->main_conf[module.ctx_index]
-#define ngx_stream_get_module_srv_conf(s, module)                              \
+#define ngx_stream_get_module_srv_conf(s, module)                             \
     (s)->srv_conf[module.ctx_index]
 
-#define ngx_stream_conf_get_module_main_conf(cf, module)                       \
+#define ngx_stream_conf_get_module_main_conf(cf, module)                      \
     ((ngx_stream_conf_ctx_t *) cf->ctx)->main_conf[module.ctx_index]
-#define ngx_stream_conf_get_module_srv_conf(cf, module)                        \
+#define ngx_stream_conf_get_module_srv_conf(cf, module)                       \
     ((ngx_stream_conf_ctx_t *) cf->ctx)->srv_conf[module.ctx_index]
 
-#define ngx_stream_cycle_get_module_main_conf(cycle, module)                   \
-    (cycle->conf_ctx[ngx_stream_module.index] ?                                \
-        ((ngx_stream_conf_ctx_t *) cycle->conf_ctx[ngx_stream_module.index])   \
-            ->main_conf[module.ctx_index]:                                     \
+#define ngx_stream_cycle_get_module_main_conf(cycle, module)                  \
+    (cycle->conf_ctx[ngx_stream_module.index] ?                               \
+        ((ngx_stream_conf_ctx_t *) cycle->conf_ctx[ngx_stream_module.index])  \
+            ->main_conf[module.ctx_index]:                                    \
         NULL)
 
 

@@ -65,13 +65,13 @@ struct ngx_http_chunked_s {
     ngx_uint_t           state;
     off_t                size;
     off_t                length;
+    off_t                skipped;
 };
 
 
 typedef struct {
     ngx_uint_t           http_version;
     ngx_uint_t           code;
-    ngx_uint_t           count;
     u_char              *start;
     u_char              *end;
 } ngx_http_status_t;
@@ -163,6 +163,10 @@ ngx_int_t ngx_http_discard_request_body(ngx_http_request_t *r);
 void ngx_http_discarded_request_body_handler(ngx_http_request_t *r);
 void ngx_http_block_reading(ngx_http_request_t *r);
 void ngx_http_test_reading(ngx_http_request_t *r);
+
+
+void ngx_http_send_timeout(ngx_http_request_t *r, off_t sent);
+void ngx_http_request_body_timeout(ngx_http_request_t *r, off_t bytes);
 
 
 char *ngx_http_types_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);

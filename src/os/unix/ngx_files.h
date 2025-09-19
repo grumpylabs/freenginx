@@ -336,15 +336,24 @@ ngx_int_t ngx_directio_off(ngx_fd_t fd);
 #define ngx_directio_on(fd)      fcntl(fd, F_NOCACHE, 1)
 #define ngx_directio_on_n        "fcntl(F_NOCACHE, 1)"
 
+#define ngx_directio_off(fd)     fcntl(fd, F_NOCACHE, 0)
+#define ngx_directio_off_n       "fcntl(F_NOCACHE, 0)"
+
 #elif (NGX_HAVE_DIRECTIO)
 
 #define ngx_directio_on(fd)      directio(fd, DIRECTIO_ON)
 #define ngx_directio_on_n        "directio(DIRECTIO_ON)"
 
+#define ngx_directio_off(fd)     directio(fd, DIRECTIO_OFF)
+#define ngx_directio_off_n       "directio(DIRECTIO_OFF)"
+
 #else
 
 #define ngx_directio_on(fd)      0
 #define ngx_directio_on_n        "ngx_directio_on_n"
+
+#define ngx_directio_off(fd)     0
+#define ngx_directio_off_n       "ngx_directio_off_n"
 
 #endif
 

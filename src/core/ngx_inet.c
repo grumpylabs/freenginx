@@ -507,7 +507,7 @@ ngx_cidr_match(struct sockaddr *sa, ngx_array_t *cidrs)
 
             p = inaddr6->s6_addr;
 
-            inaddr = p[12] << 24;
+            inaddr = (in_addr_t) p[12] << 24;
             inaddr += p[13] << 16;
             inaddr += p[14] << 8;
             inaddr += p[15];
@@ -1286,7 +1286,7 @@ ngx_inet_add_addr(ngx_pool_t *pool, ngx_url_t *u, struct sockaddr *sockaddr,
 
         ngx_memcpy(sa, sockaddr, socklen);
 
-        ngx_inet_set_port(sa, u->port + i);
+        ngx_inet_set_port(sa, u->port + (in_port_t) i);
 
         switch (sa->sa_family) {
 

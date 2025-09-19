@@ -107,7 +107,7 @@ ngx_md5_final(u_char result[16], ngx_md5_t *ctx)
     result[14] = (u_char) (ctx->d >> 16);
     result[15] = (u_char) (ctx->d >> 24);
 
-    ngx_memzero(ctx, sizeof(*ctx));
+    ngx_explicit_memzero(ctx, sizeof(*ctx));
 }
 
 

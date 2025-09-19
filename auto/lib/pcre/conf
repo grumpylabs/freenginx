@@ -68,11 +68,9 @@ if [ $PCRE != NONE ]; then
 
 else
 
-    if [ "$NGX_PLATFORM" != win32 ]; then
-        PCRE=NO
-    fi
+    PCRE=NO
 
-    if [ $PCRE = NO -a $PCRE2 != DISABLED ]; then
+    if [ $PCRE2 != DISABLED ]; then
 
         ngx_feature="PCRE2 library"
         ngx_feature_name="NGX_PCRE2"

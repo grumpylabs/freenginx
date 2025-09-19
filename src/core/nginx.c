@@ -342,10 +342,6 @@ main(int argc, char *const *argv)
 
 #if !(NGX_WIN32)
 
-    if (ngx_init_signals(cycle->log) != NGX_OK) {
-        return 1;
-    }
-
     if (!ngx_inherited && ccf->daemon) {
         if (ngx_daemon(cycle->log) != NGX_OK) {
             return 1;
@@ -363,6 +359,18 @@ main(int argc, char *const *argv)
     if (ngx_create_pidfile(&ccf->pid, cycle->log) != NGX_OK) {
         return 1;
     }
+
+#if !(NGX_WIN32)
+
+    if (ngx_init_signals(cycle->log) != NGX_OK) {
+        return 1;
+    }
+
+    if (ngx_daemon_sync(cycle->log) != NGX_OK) {
+        return 1;
+    }
+
+#endif
 
     if (ngx_log_redirect_stderr(cycle) != NGX_OK) {
         return 1;
@@ -766,7 +774,9 @@ ngx_exec_new_binary(ngx_cycle_t *cycle, char *const *argv)
 
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
-    if (ngx_rename_file(ccf->pid.data, ccf->oldpid.data) == NGX_FILE_ERROR) {
+    if (ccf->pid.len
+        && ngx_rename_file(ccf->pid.data, ccf->oldpid.data) == NGX_FILE_ERROR)
+    {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       ngx_rename_file_n " %s to %s failed "
                       "before executing new binary process \"%s\"",
@@ -781,8 +791,9 @@ ngx_exec_new_binary(ngx_cycle_t *cycle, char *const *argv)
     pid = ngx_execute(cycle, &ctx);
 
     if (pid == NGX_INVALID_PID) {
-        if (ngx_rename_file(ccf->oldpid.data, ccf->pid.data)
-            == NGX_FILE_ERROR)
+        if (ccf->pid.len
+            && ngx_rename_file(ccf->oldpid.data, ccf->pid.data)
+               == NGX_FILE_ERROR)
         {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           ngx_rename_file_n " %s back to %s failed after "
@@ -1168,19 +1179,25 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
         ngx_str_set(&ccf->pid, NGX_PID_PATH);
     }
 
-    if (ngx_conf_full_name(cycle, &ccf->pid, 0) != NGX_OK) {
-        return NGX_CONF_ERROR;
+    if (ngx_strcmp(ccf->pid.data, "off") == 0) {
+        ngx_str_set(&ccf->pid, "");
+        ngx_str_set(&ccf->oldpid, "");
+
+    } else {
+        if (ngx_conf_full_name(cycle, &ccf->pid, 0) != NGX_OK) {
+            return NGX_CONF_ERROR;
+        }
+
+        ccf->oldpid.len = ccf->pid.len + sizeof(NGX_OLDPID_EXT);
+
+        ccf->oldpid.data = ngx_pnalloc(cycle->pool, ccf->oldpid.len);
+        if (ccf->oldpid.data == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        ngx_memcpy(ngx_cpymem(ccf->oldpid.data, ccf->pid.data, ccf->pid.len),
+                   NGX_OLDPID_EXT, sizeof(NGX_OLDPID_EXT));
     }
-
-    ccf->oldpid.len = ccf->pid.len + sizeof(NGX_OLDPID_EXT);
-
-    ccf->oldpid.data = ngx_pnalloc(cycle->pool, ccf->oldpid.len);
-    if (ccf->oldpid.data == NULL) {
-        return NGX_CONF_ERROR;
-    }
-
-    ngx_memcpy(ngx_cpymem(ccf->oldpid.data, ccf->pid.data, ccf->pid.len),
-               NGX_OLDPID_EXT, sizeof(NGX_OLDPID_EXT));
 
 
 #if !(NGX_WIN32)

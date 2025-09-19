@@ -1115,17 +1115,26 @@ ngx_mail_proxy_read_response(ngx_mail_session_t *s, ngx_uint_t state)
 static void
 ngx_mail_proxy_handler(ngx_event_t *ev)
 {
-    char                   *action, *recv_action, *send_action;
-    size_t                  size;
-    ssize_t                 n;
-    ngx_buf_t              *b;
-    ngx_uint_t              do_write;
-    ngx_connection_t       *c, *src, *dst;
-    ngx_mail_session_t     *s;
-    ngx_mail_proxy_conf_t  *pcf;
+    char                      *action, *recv_action, *send_action;
+    off_t                      sent, excess, limit;
+    size_t                     size, limit_rate, limit_rate_after;
+    ssize_t                    n;
+    ngx_buf_t                 *b;
+    ngx_uint_t                 do_write;
+    ngx_msec_t                 delay;
+    ngx_msec_int_t             ms;
+    ngx_connection_t          *c, *src, *dst;
+    ngx_mail_session_t        *s;
+    ngx_mail_proxy_conf_t     *pcf;
+    ngx_mail_core_srv_conf_t  *cscf;
 
     c = ev->data;
     s = c->data;
+
+    if (ev->delayed && ev->timedout) {
+        ev->delayed = 0;
+        ev->timedout = 0;
+    }
 
     if (ev->timedout || c->close) {
         c->log->action = "proxying";
@@ -1147,40 +1156,35 @@ ngx_mail_proxy_handler(ngx_event_t *ev)
         return;
     }
 
-    if (c == s->connection) {
-        if (ev->write) {
-            recv_action = "proxying and reading from upstream";
-            send_action = "proxying and sending to client";
-            src = s->proxy->upstream.connection;
-            dst = c;
-            b = s->proxy->buffer;
+    if ((c == s->connection && ev->write)
+        || (c != s->connection && !ev->write))
+    {
+        recv_action = "proxying and reading from upstream";
+        send_action = "proxying and sending to client";
+        src = s->proxy->upstream.connection;
+        dst = s->connection;
+        b = s->proxy->buffer;
 
-        } else {
-            recv_action = "proxying and reading from client";
-            send_action = "proxying and sending to upstream";
-            src = c;
-            dst = s->proxy->upstream.connection;
-            b = s->buffer;
-        }
+        cscf = ngx_mail_get_module_srv_conf(s, ngx_mail_core_module);
+        limit_rate = cscf->limit_rate;
+        limit_rate_after = cscf->limit_rate_after;
 
     } else {
-        if (ev->write) {
-            recv_action = "proxying and reading from client";
-            send_action = "proxying and sending to upstream";
-            src = s->connection;
-            dst = c;
-            b = s->buffer;
-
-        } else {
-            recv_action = "proxying and reading from upstream";
-            send_action = "proxying and sending to client";
-            src = c;
-            dst = s->connection;
-            b = s->proxy->buffer;
-        }
+        recv_action = "proxying and reading from client";
+        send_action = "proxying and sending to upstream";
+        src = s->connection;
+        dst = s->proxy->upstream.connection;
+        b = s->buffer;
+        limit_rate = 0;
+        limit_rate_after = 0;
     }
 
     do_write = ev->write ? 1 : 0;
+    sent = dst->sent;
+
+#if (NGX_SUPPRESS_WARN)
+    excess = 0;
+#endif
 
     ngx_log_debug3(NGX_LOG_DEBUG_MAIL, ev->log, 0,
                    "mail proxy handler: %ui, #%d > #%d",
@@ -1192,8 +1196,33 @@ ngx_mail_proxy_handler(ngx_event_t *ev)
 
             size = b->last - b->pos;
 
-            if (size && dst->write->ready) {
+            if (size && dst->write->ready && !dst->write->delayed) {
                 c->log->action = send_action;
+
+                if (limit_rate) {
+                    ms = (ngx_msec_int_t) (ngx_current_msec - s->limit_last);
+                    ms = ngx_max(ms, 0);
+
+                    excess = (off_t) (s->limit_excess
+                                      - (uint64_t) limit_rate * ms / 1000);
+                    excess = ngx_max(excess, 0);
+
+                    limit = (off_t) limit_rate + (off_t) limit_rate_after
+                            - excess;
+
+                    if (limit <= 0) {
+                        dst->write->delayed = 1;
+                        excess -= (off_t) limit_rate_after;
+                        excess -= (off_t) limit_rate / 2;
+                        delay = (ngx_msec_t) (excess * 1000 / limit_rate + 1);
+                        ngx_add_timer(dst->write, delay);
+                        break;
+                    }
+
+                    if ((off_t) size > limit) {
+                        size = (size_t) limit;
+                    }
+                }
 
                 n = dst->send(dst, b->pos, size);
 
@@ -1208,6 +1237,24 @@ ngx_mail_proxy_handler(ngx_event_t *ev)
                     if (b->pos == b->last) {
                         b->pos = b->start;
                         b->last = b->start;
+                    }
+
+                    if (limit_rate) {
+                        excess += n;
+
+                        s->limit_last = ngx_current_msec;
+                        s->limit_excess = excess;
+
+                        excess -= (off_t) limit_rate_after;
+                        excess -= (off_t) limit_rate / 2;
+                        excess = ngx_max(excess, 0);
+
+                        delay = (ngx_msec_t) (excess * 1000 / limit_rate);
+
+                        if (delay > 0) {
+                            dst->write->delayed = 1;
+                            ngx_add_timer(dst->write, delay);
+                        }
                     }
                 }
             }
@@ -1276,7 +1323,7 @@ ngx_mail_proxy_handler(ngx_event_t *ev)
         return;
     }
 
-    if (c == s->connection) {
+    if (c == s->connection && (dst->sent != sent || !ev->write)) {
         pcf = ngx_mail_get_module_srv_conf(s, ngx_mail_proxy_module);
         ngx_add_timer(c->read, pcf->timeout);
     }

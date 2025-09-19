@@ -1,0 +1,97 @@
+Aleksei Bavshin <a.bavshin@f5.com>
+Alessandro Ghedini <alessandro@cloudflare.com>
+Alessandro Ghedini <alessandro@ghedini.me>
+Alex Zhang <zchao1995@gmail.com>
+Alexey Radkov <alexey.radkov@gmail.com>
+Andrei Belov <defan@nginx.com>
+Andrew Hutchings <andrew@linuxjedi.co.uk>
+Andrey Belov <defan@nginx.com>
+Armin Grodon <me@armingrodon.de>
+Awdhesh Mathpal <mathpal@amazon.com>
+Bart Warmerdam <bartw@xs4all.nl>
+BullerDu <yefei.dyf@alibaba-inc.com>
+Chanhun Jeong <chanhun.jeong@navercorp.com>
+Ciel Zhao <i@ciel.dev>
+Damien Tournoud <damien@commerceguys.com>
+Daniil Bondarev <bondarev@amazon.com>
+Debayan Ghosh <debayang.qdt@qualcommdatacenter.com>
+Dirkjan Bussink <d.bussink@gmail.com>
+Dmitrii Pichulin
+Dmitry Lazurkin <dilaz03@gmail.com>
+Dmitry Volyntsev <xeioex@nginx.com>
+Eran Kornblau <erankor@gmail.com>
+Evan Miller <emmiller@gmail.com>
+F. da Silva <fdasilvayy@gmail.com>
+FengGu <flygoast@126.com>
+Filipe Da Silva <fdasilvayy@gmail.com>
+Filipe da Silva <fdasilva@ingima.com>
+Filipe da Silva <fdasilvayy@gmail.com>
+Gena Makhomed <gmm@csdoc.com>
+Gleb Smirnoff <glebius@nginx.com>
+Gu Feng <flygoast@126.com>
+Igor Ippolitov <iippolitov@nginx.com>
+Igor Sysoev <igor@sysoev.ru>
+Ilya Leoshkevich <iii@linux.ibm.com>
+J Carter <jordanc.carter@outlook.com>
+Jianjun Zheng <codeeply@gmail.com>
+Jim Radford <radford@galvanix.com>
+Jinhua Tan <312841925@qq.com>
+Jiuzhou Cui <cuijiuzhou@alibaba-inc.com>
+Josh Soref <timeless@gmail.com>
+Justin Li <jli.justinli@gmail.com>
+Konstantin Pavlov <thresh@nginx.com>
+Kouhei Sutou <kou@cozmixng.org>
+Kurtis Nusbaum <klnusbaum@gmail.com>
+Lanshun Zhou <zls.sogou@gmail.com>
+Lukas Tribus <luky-37@hotmail.com>
+Marcus Ball <marcus.ball@live.com>
+Mariano Di Martino <mariano.dimartino@uhasselt.be>
+Markus Linnala <Markus.Linnala@cybercom.com>
+Martin Duke <m.duke@f5.com>
+Martin Mlynář <nexus@smoula.net>
+Mathew Rodley <mathew@rodley.com.au>
+Maxim Dounin <mdounin@mdounin.ru>
+Maxim Konovalov <maxim@nginx.com>
+Michiel W. Beijen <mb@x14.nl>
+Murilo Andrade <murilo.b.andrade@gmail.com>
+Niklas Keller <me@kelunik.com>
+Nikolay Morozov <n.morozov@securitycode.ru>
+Nova DasSarma <nova@novalinium.com>
+Orgad Shaneh <orgads@gmail.com>
+Otto Kekäläinen <otto@seravo.fi>
+Patryk Lesiewicz <patryk@google.com>
+Pavel Pautov <p.pautov@f5.com>
+Peter Wu <peter@lekensteyn.nl>
+Piotr Sikora <piotr@cloudflare.com>
+Piotr Sikora <piotrsikora@google.com>
+Quantum <quantum2048@gmail.com>
+Rob Mueller <robm@fastmail.fm>
+Rob N ★ <robn@fastmail.com>
+Roman Arutyunyan <arut@nginx.com>
+Ruslan Ermilov <ru@nginx.com>
+Samuel Martin <s.martin49@gmail.com>
+Sergey A. Osokin <osa@FreeBSD.org.ru>
+Sergey Budnevitch <sb@waeme.net>
+Sergey Kandaurov <pluknet@nginx.com>
+Shigeki Ohtsu <ohtsu@iij.ad.jp>
+Simon Leblanc <contact@leblanc-simon.eu>
+Tatsuhiko Kubo <cubicdaiya@gmail.com>
+Tatsuya Kaneko <catatsuy@catatsuy.org>
+Thibault Charbonnier <thibaultcha@fastmail.com>
+Tim Taubert <tim@timtaubert.de>
+Toshikuni Fukaya <toshikuni-fukaya@cybozu.co.jp>
+Vadim Filimonov <fffilimonov@yandex.ru>
+Valentin Bartenev <vbart@nginx.com>
+Valentin Bartenev <vbart@wbsrv.ru>
+Vladimir Homutov <vl@nginx.com>
+Vladimir Khomutov <vl@inspert.ru>
+Vladimir Khomutov <vl@wbsrv.ru>
+Xiaochen Wang <wangxiaochen0@gmail.com>
+Yichun Zhang <agentzh@gmail.com>
+Yugo Horie <u5.horie@gmail.com>
+Yuriy Izorkin <lafiel@elven.pw>
+Yves Crespin <yves.crespin@e-quartz.fr>
+balus <balus@foxmail.com>
+chronolaw <chronolaw@gmail.com>
+hucongcong <hucong.c@foxmail.com>
+othree <othree@gmail.com>

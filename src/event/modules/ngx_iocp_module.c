@@ -172,7 +172,7 @@ ngx_iocp_timer(void *data)
 #endif
     }
 
-#if defined(__WATCOMC__) || defined(__GNUC__)
+#if defined(__WATCOMC__) || defined(__GNUC__) || defined(__clang__)
     return 0;
 #endif
 }

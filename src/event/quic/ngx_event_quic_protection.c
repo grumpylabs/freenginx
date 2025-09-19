@@ -122,9 +122,10 @@ ngx_quic_keys_set_initial_secret(ngx_quic_keys_t *keys, ngx_str_t *secret,
     ngx_quic_secret_t   *client, *server;
     ngx_quic_ciphers_t   ciphers;
 
-    static const uint8_t salt[20] =
-        "\x38\x76\x2c\xf7\xf5\x59\x34\xb3\x4d\x17"
-        "\x9a\xe6\xa4\xc8\x0c\xad\xcc\xbb\x7f\x0a";
+    static const uint8_t salt[20] = {
+        0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17,
+        0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a
+    };
 
     client = &keys->secrets[ssl_encryption_initial].client;
     server = &keys->secrets[ssl_encryption_initial].server;
@@ -936,10 +937,14 @@ ngx_quic_create_retry_packet(ngx_quic_header_t *pkt, ngx_str_t *res)
     ngx_quic_ciphers_t   ciphers;
 
     /* 5.8.  Retry Packet Integrity */
-    static u_char     key_data[16] =
-        "\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e";
-    static u_char     nonce[NGX_QUIC_IV_LEN] =
-        "\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb";
+    static u_char     key_data[16] = {
+        0xbe, 0x0c, 0x69, 0x0b, 0x9f, 0x66, 0x57, 0x5a, 0x1d, 0x76,
+        0x6b, 0x54, 0xe3, 0x68, 0xc8, 0x4e
+    };
+    static u_char     nonce[NGX_QUIC_IV_LEN] = {
+        0x46, 0x15, 0x99, 0xd3, 0x5d, 0x63, 0x2b, 0xf2, 0x23, 0x98,
+        0x25, 0xbb
+    };
     static ngx_str_t  in = ngx_string("");
 
     ad.data = res->data;
@@ -1144,8 +1149,19 @@ ngx_quic_decrypt(ngx_quic_header_t *pkt, uint64_t *largest_pn)
         key_phase = (pkt->flags & NGX_QUIC_PKT_KPHASE) != 0;
 
         if (key_phase != pkt->key_phase) {
-            secret = &pkt->keys->next_key.client;
-            pkt->key_update = 1;
+            if (pkt->keys->next_key.client.ctx != NULL) {
+                secret = &pkt->keys->next_key.client;
+                pkt->key_update = 1;
+
+            } else {
+                /*
+                 * RFC 9001,  6.3. Timing of Receive Key Generation.
+                 *
+                 * Trial decryption to avoid timing side-channel.
+                 */
+                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, pkt->log, 0,
+                               "quic next key missing");
+            }
         }
     }
 

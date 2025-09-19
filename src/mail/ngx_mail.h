@@ -40,6 +40,7 @@ typedef struct {
 #if (NGX_HAVE_INET6)
     unsigned                ipv6only:1;
 #endif
+    unsigned                multipath:1;
     unsigned                so_keepalive:2;
     unsigned                proxy_protocol:1;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
@@ -114,8 +115,16 @@ typedef struct {
 
     ngx_msec_t              timeout;
     ngx_msec_t              resolver_timeout;
+    ngx_msec_t              lingering_time;
+    ngx_msec_t              lingering_timeout;
 
     ngx_uint_t              max_errors;
+    ngx_uint_t              max_commands;
+
+    ngx_flag_t              lingering_close;
+
+    size_t                  limit_rate;
+    size_t                  limit_rate_after;
 
     ngx_str_t               server_name;
 
@@ -140,7 +149,9 @@ typedef enum {
     ngx_pop3_auth_login_password,
     ngx_pop3_auth_plain,
     ngx_pop3_auth_cram_md5,
-    ngx_pop3_auth_external
+    ngx_pop3_auth_external,
+    ngx_pop3_auth_xoauth2,
+    ngx_pop3_auth_oauthbearer
 } ngx_pop3_state_e;
 
 
@@ -151,6 +162,8 @@ typedef enum {
     ngx_imap_auth_plain,
     ngx_imap_auth_cram_md5,
     ngx_imap_auth_external,
+    ngx_imap_auth_xoauth2,
+    ngx_imap_auth_oauthbearer,
     ngx_imap_login,
     ngx_imap_user,
     ngx_imap_passwd
@@ -164,6 +177,8 @@ typedef enum {
     ngx_smtp_auth_plain,
     ngx_smtp_auth_cram_md5,
     ngx_smtp_auth_external,
+    ngx_smtp_auth_xoauth2,
+    ngx_smtp_auth_oauthbearer,
     ngx_smtp_helo,
     ngx_smtp_helo_xclient,
     ngx_smtp_helo_auth,
@@ -206,13 +221,15 @@ typedef struct {
     unsigned                protocol:3;
     unsigned                blocked:1;
     unsigned                quit:1;
+    unsigned                no_lingering_close:1;
     unsigned                quoted:1;
     unsigned                backslash:1;
     unsigned                no_sync_literal:1;
     unsigned                starttls:1;
     unsigned                esmtp:1;
-    unsigned                auth_method:3;
+    unsigned                auth_method:4;
     unsigned                auth_wait:1;
+    unsigned                auth_quit:1;
 
     ngx_str_t               login;
     ngx_str_t               passwd;
@@ -228,13 +245,21 @@ typedef struct {
     ngx_str_t               smtp_from;
     ngx_str_t               smtp_to;
 
+    ngx_str_t               auth_err;
+
     ngx_str_t               cmd;
 
     ngx_uint_t              command;
     ngx_array_t             args;
 
     ngx_uint_t              errors;
+    ngx_uint_t              commands;
     ngx_uint_t              login_attempt;
+
+    ngx_msec_t              limit_last;
+    off_t                   limit_excess;
+
+    ngx_msec_t              lingering_time;
 
     /* used to parse POP3/IMAP/SMTP command */
 
@@ -301,18 +326,25 @@ typedef struct {
 #define NGX_MAIL_AUTH_APOP              3
 #define NGX_MAIL_AUTH_CRAM_MD5          4
 #define NGX_MAIL_AUTH_EXTERNAL          5
-#define NGX_MAIL_AUTH_NONE              6
+#define NGX_MAIL_AUTH_XOAUTH2           6
+#define NGX_MAIL_AUTH_OAUTHBEARER       7
+#define NGX_MAIL_AUTH_NONE              8
 
 
-#define NGX_MAIL_AUTH_PLAIN_ENABLED     0x0002
-#define NGX_MAIL_AUTH_LOGIN_ENABLED     0x0004
-#define NGX_MAIL_AUTH_APOP_ENABLED      0x0008
-#define NGX_MAIL_AUTH_CRAM_MD5_ENABLED  0x0010
-#define NGX_MAIL_AUTH_EXTERNAL_ENABLED  0x0020
-#define NGX_MAIL_AUTH_NONE_ENABLED      0x0040
+#define NGX_MAIL_AUTH_PLAIN_ENABLED        0x0002
+#define NGX_MAIL_AUTH_LOGIN_ENABLED        0x0004
+#define NGX_MAIL_AUTH_APOP_ENABLED         0x0008
+#define NGX_MAIL_AUTH_CRAM_MD5_ENABLED     0x0010
+#define NGX_MAIL_AUTH_EXTERNAL_ENABLED     0x0020
+#define NGX_MAIL_AUTH_XOAUTH2_ENABLED      0x0040
+#define NGX_MAIL_AUTH_OAUTHBEARER_ENABLED  0x0080
+#define NGX_MAIL_AUTH_NONE_ENABLED         0x0100
 
 
 #define NGX_MAIL_PARSE_INVALID_COMMAND  20
+
+
+#define NGX_MAIL_LINGERING_BUFFER_SIZE  4096
 
 
 typedef void (*ngx_mail_init_session_pt)(ngx_mail_session_t *s,
@@ -397,6 +429,10 @@ ngx_int_t ngx_mail_auth_cram_md5_salt(ngx_mail_session_t *s,
 ngx_int_t ngx_mail_auth_cram_md5(ngx_mail_session_t *s, ngx_connection_t *c);
 ngx_int_t ngx_mail_auth_external(ngx_mail_session_t *s, ngx_connection_t *c,
     ngx_uint_t n);
+ngx_int_t ngx_mail_auth_xoauth2(ngx_mail_session_t *s, ngx_connection_t *c,
+    ngx_uint_t n);
+ngx_int_t ngx_mail_auth_oauthbearer(ngx_mail_session_t *s, ngx_connection_t *c,
+    ngx_uint_t n);
 ngx_int_t ngx_mail_auth_parse(ngx_mail_session_t *s, ngx_connection_t *c);
 
 void ngx_mail_send(ngx_event_t *wev);
@@ -413,7 +449,10 @@ char *ngx_mail_capabilities(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 /* STUB */
 void ngx_mail_proxy_init(ngx_mail_session_t *s, ngx_addr_t *peer);
 void ngx_mail_auth_http_init(ngx_mail_session_t *s);
+ngx_int_t ngx_mail_auth_http_header_value(ngx_mail_session_t *s,
+    ngx_str_t *name, ngx_str_t *value);
 ngx_int_t ngx_mail_realip_handler(ngx_mail_session_t *s);
+ngx_int_t ngx_mail_limit_conn_handler(ngx_mail_session_t *s);
 /**/
 
 

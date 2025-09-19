@@ -113,7 +113,7 @@ ngx_sha1_final(u_char result[20], ngx_sha1_t *ctx)
     result[18] = (u_char) (ctx->e >> 8);
     result[19] = (u_char) ctx->e;
 
-    ngx_memzero(ctx, sizeof(*ctx));
+    ngx_explicit_memzero(ctx, sizeof(*ctx));
 }
 
 

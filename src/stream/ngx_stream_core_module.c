@@ -738,6 +738,18 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
+        if (ngx_strcmp(value[i].data, "multipath") == 0) {
+#if (NGX_HAVE_MULTIPATH)
+            ls->multipath = 1;
+            ls->bind = 1;
+#else
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "multipath is not supported "
+                               "on this platform, ignored");
+#endif
+            continue;
+        }
+
         if (ngx_strcmp(value[i].data, "ssl") == 0) {
 #if (NGX_STREAM_SSL)
             ngx_stream_ssl_conf_t  *sslcf;
@@ -882,6 +894,12 @@ ngx_stream_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 #if (NGX_HAVE_TCP_FASTOPEN)
         if (ls->fastopen != -1) {
             return "\"fastopen\" parameter is incompatible with \"udp\"";
+        }
+#endif
+
+#if (NGX_HAVE_MULTIPATH)
+        if (ls->multipath) {
+            return "\"multipath\" parameter is incompatible with \"udp\"";
         }
 #endif
     }

@@ -153,7 +153,7 @@ ngx_cpu_pause(void);
 #define ngx_memory_barrier()        __asm (".volatile"); __asm (".nonvolatile")
 
 
-#else /* ( __GNUC__ || __INTEL_COMPILER ) */
+#else /* ( __GNUC__ || __clang__ || __INTEL_COMPILER ) */
 
 #define NGX_HAVE_ATOMIC_OPS  1
 
@@ -194,7 +194,7 @@ ngx_cpu_pause(void);
 #define ngx_memory_barrier()        __asm (".volatile"); __asm (".nonvolatile")
 
 
-#else /* ( __GNUC__ || __INTEL_COMPILER ) */
+#else /* ( __GNUC__ || __clang__ || __INTEL_COMPILER ) */
 
 #define NGX_HAVE_ATOMIC_OPS  1
 
@@ -229,7 +229,7 @@ typedef volatile ngx_atomic_uint_t  ngx_atomic_t;
 #include "ngx_sunpro_atomic_sparc64.h"
 
 
-#else /* ( __GNUC__ || __INTEL_COMPILER ) */
+#else /* ( __GNUC__ || __clang__ || __INTEL_COMPILER ) */
 
 #define NGX_HAVE_ATOMIC_OPS  1
 

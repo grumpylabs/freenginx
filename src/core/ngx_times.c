@@ -332,7 +332,7 @@ ngx_gmtime(time_t t, ngx_tm_t *tp)
         t = 0;
     }
 
-    days = t / 86400;
+    days = (ngx_uint_t) t / 86400;
     sec = t % 86400;
 
     /*

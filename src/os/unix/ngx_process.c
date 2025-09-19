@@ -15,13 +15,21 @@ typedef struct {
     int     signo;
     char   *signame;
     char   *name;
+#if (NGX_HAVE_SIGINFO)
     void  (*handler)(int signo, siginfo_t *siginfo, void *ucontext);
+#else
+    void  (*handler)(int signo);
+#endif
 } ngx_signal_t;
 
 
 
 static void ngx_execute_proc(ngx_cycle_t *cycle, void *data);
+#if (NGX_HAVE_SIGINFO)
 static void ngx_signal_handler(int signo, siginfo_t *siginfo, void *ucontext);
+#else
+static void ngx_signal_handler(int signo);
+#endif
 static void ngx_process_get_status(void);
 static void ngx_unlock_mutexes(ngx_pid_t pid);
 
@@ -291,8 +299,12 @@ ngx_init_signals(ngx_log_t *log)
         ngx_memzero(&sa, sizeof(struct sigaction));
 
         if (sig->handler) {
+#if (NGX_HAVE_SIGINFO)
             sa.sa_sigaction = sig->handler;
             sa.sa_flags = SA_SIGINFO;
+#else
+            sa.sa_handler = sig->handler;
+#endif
 
         } else {
             sa.sa_handler = SIG_IGN;
@@ -315,8 +327,13 @@ ngx_init_signals(ngx_log_t *log)
 }
 
 
+#if (NGX_HAVE_SIGINFO)
 static void
 ngx_signal_handler(int signo, siginfo_t *siginfo, void *ucontext)
+#else
+static void
+ngx_signal_handler(int signo)
+#endif
 {
     char            *action;
     ngx_int_t        ignore;
@@ -441,12 +458,15 @@ ngx_signal_handler(int signo, siginfo_t *siginfo, void *ucontext)
         break;
     }
 
+#if (NGX_HAVE_SIGINFO)
     if (siginfo && siginfo->si_pid) {
         ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
                       "signal %d (%s) received from %P%s",
                       signo, sig->signame, siginfo->si_pid, action);
 
-    } else {
+    } else
+#endif
+    {
         ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
                       "signal %d (%s) received%s",
                       signo, sig->signame, action);

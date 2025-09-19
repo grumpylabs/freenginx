@@ -12,6 +12,7 @@
 # Sun C 5.12 SunOS_i386 2011/11/16        Oracle Solaris Studio 12.3
 # Sun C 5.13 SunOS_i386 2014/10/20        Oracle Solaris Studio 12.4
 # Sun C 5.14 SunOS_i386 2016/05/31        Oracle Developer Studio 12.5
+# Sun C 5.15 SunOS_i386 2017/05/30        Oracle Developer Studio 12.6
 
 NGX_SUNC_VER=`$CC -V 2>&1 | grep 'Sun C' 2>&1 \
                           | sed -e 's/^.* Sun C \(.*\)/\1/'`
@@ -72,14 +73,16 @@ MODULE_LINK="-G"
 # 20736 == 0x5100, Sun Studio 12.1
 
 if [ "$ngx_sunc_ver" -ge 20736 ]; then
-    ngx_fast="-fast"
+    ngx_fast="-fast -xO3"
 
 else
     # older versions had problems with bit-fields
-    ngx_fast="-fast -xalias_level=any"
+    ngx_fast="-fast -xO3 -xalias_level=any"
 fi
 
-IPO=-xipo
+IPO=
+#IPO=-xipo
+
 CFLAGS="$CFLAGS $ngx_fast $IPO"
 CORE_LINK="$CORE_LINK $ngx_fast $IPO"
 

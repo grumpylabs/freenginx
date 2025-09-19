@@ -54,6 +54,7 @@
 #define NGX_HTTP_UPSTREAM_IGN_XA_BUFFERING   0x00000080
 #define NGX_HTTP_UPSTREAM_IGN_XA_CHARSET     0x00000100
 #define NGX_HTTP_UPSTREAM_IGN_VARY           0x00000200
+#define NGX_HTTP_UPSTREAM_IGN_AGE            0x00000400
 
 
 typedef struct {
@@ -181,6 +182,7 @@ typedef struct {
     ngx_flag_t                       intercept_errors;
     ngx_flag_t                       cyclic_temp_file;
     ngx_flag_t                       force_ranges;
+    ngx_flag_t                       duplicate_chunked;
 
     ngx_path_t                      *temp_path;
 
@@ -287,14 +289,17 @@ typedef struct {
 
     ngx_table_elt_t                 *cache_control;
     ngx_table_elt_t                 *set_cookie;
+    ngx_table_elt_t                 *age;
 
     off_t                            content_length_n;
     time_t                           last_modified_time;
+    time_t                           age_n;
 
     unsigned                         connection_close:1;
     unsigned                         chunked:1;
     unsigned                         no_cache:1;
     unsigned                         expired:1;
+    unsigned                         max_age:1;
 } ngx_http_upstream_headers_in_t;
 
 
@@ -417,6 +422,8 @@ typedef struct {
 
 ngx_int_t ngx_http_upstream_create(ngx_http_request_t *r);
 void ngx_http_upstream_init(ngx_http_request_t *r);
+ngx_int_t ngx_http_upstream_clear_headers(ngx_http_request_t *r,
+    ngx_http_upstream_t *u);
 ngx_int_t ngx_http_upstream_non_buffered_filter_init(void *data);
 ngx_int_t ngx_http_upstream_non_buffered_filter(void *data, ssize_t bytes);
 ngx_http_upstream_srv_conf_t *ngx_http_upstream_add(ngx_conf_t *cf,

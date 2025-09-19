@@ -57,6 +57,7 @@ typedef struct {
     unsigned             nomem:1;
     unsigned             buffering:1;
     unsigned             zlib_ng:1;
+    unsigned             zlib_lit_mem:1;
     unsigned             state_allocated:1;
 
     size_t               zin;
@@ -215,6 +216,7 @@ static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
 static ngx_http_output_body_filter_pt    ngx_http_next_body_filter;
 
 static ngx_uint_t  ngx_http_gzip_assume_zlib_ng;
+static ngx_uint_t  ngx_http_gzip_assume_zlib_lit_mem;
 
 
 static ngx_int_t
@@ -512,13 +514,23 @@ ngx_http_gzip_filter_memory(ngx_http_request_t *r, ngx_http_gzip_ctx_t *ctx)
         ctx->allocated = 8192 + 16 + (1 << (wbits + 2))
                          + (1 << (memlevel + 9));
 
+        if (ngx_http_gzip_assume_zlib_lit_mem) {
+            /*
+             * When compiled with the LIT_MEM define, zlib uses an additional
+             * buffer for literals/lengths.
+             */
+
+            ctx->allocated += ((ngx_uint_t) 1 << (memlevel + 6));
+            ctx->zlib_lit_mem = 1;
+        }
+
     } else {
         /*
          * Another zlib variant, https://github.com/zlib-ng/zlib-ng.
          * It used to force window bits to 13 for fast compression level,
          * uses (64 + sizeof(void*)) additional space on all allocations
          * for alignment, 16-byte padding in one of window-sized buffers,
-         * and 128K hash.
+         * 128K hash, and defines LIT_MEM by default.
          */
 
         if (conf->level == 1) {
@@ -527,6 +539,7 @@ ngx_http_gzip_filter_memory(ngx_http_request_t *r, ngx_http_gzip_ctx_t *ctx)
 
         ctx->allocated = 8192 + 16 + (1 << (wbits + 2))
                          + 131072 + (1 << (memlevel + 8))
+                         + (1 << (memlevel + 6))
                          + 4 * (64 + sizeof(void*));
         ctx->zlib_ng = 1;
     }
@@ -959,8 +972,11 @@ ngx_http_gzip_filter_alloc(void *opaque, u_int items, u_int size)
                       "gzip filter failed to use preallocated memory: "
                       "%ud of %ui", items * size, ctx->allocated);
 
-    } else {
+    } else if (ctx->zlib_lit_mem) {
         ngx_http_gzip_assume_zlib_ng = 1;
+
+    } else {
+        ngx_http_gzip_assume_zlib_lit_mem = 1;
     }
 
     p = ngx_palloc(ctx->request->pool, items * size);

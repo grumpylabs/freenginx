@@ -13,7 +13,7 @@
 #include <ngx_core.h>
 
 
-typedef void *            ngx_buf_tag_t;
+typedef uintptr_t         ngx_buf_tag_t;
 
 typedef struct ngx_buf_s  ngx_buf_t;
 

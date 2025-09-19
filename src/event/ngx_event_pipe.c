@@ -17,14 +17,18 @@ static ngx_int_t ngx_event_pipe_write_to_downstream(ngx_event_pipe_t *p);
 static ngx_int_t ngx_event_pipe_write_chain_to_temp_file(ngx_event_pipe_t *p);
 static ngx_inline void ngx_event_pipe_remove_shadow_links(ngx_buf_t *buf);
 static ngx_int_t ngx_event_pipe_drain_chains(ngx_event_pipe_t *p);
+static ngx_int_t ngx_event_pipe_min_rate(ngx_event_pipe_t *p, off_t sent);
 
 
 ngx_int_t
 ngx_event_pipe(ngx_event_pipe_t *p, ngx_int_t do_write)
 {
+    off_t         sent;
     ngx_int_t     rc;
     ngx_uint_t    flags;
     ngx_event_t  *rev, *wev;
+
+    sent = p->downstream->sent;
 
     for ( ;; ) {
         if (do_write) {
@@ -88,7 +92,9 @@ ngx_event_pipe(ngx_event_pipe_t *p, ngx_int_t do_write)
 
         if (!wev->delayed) {
             if (wev->active && !wev->ready) {
-                ngx_add_timer(wev, p->send_timeout);
+                if (ngx_event_pipe_min_rate(p, p->downstream->sent - sent)) {
+                    ngx_add_timer(wev, p->send_timeout);
+                }
 
             } else if (wev->timer_set) {
                 ngx_del_timer(wev);
@@ -103,12 +109,13 @@ ngx_event_pipe(ngx_event_pipe_t *p, ngx_int_t do_write)
 static ngx_int_t
 ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
 {
-    off_t         limit;
-    ssize_t       n, size;
-    ngx_int_t     rc;
-    ngx_buf_t    *b;
-    ngx_msec_t    delay;
-    ngx_chain_t  *chain, *cl, *ln;
+    off_t            limit, excess;
+    ssize_t          n, size, sent;
+    ngx_int_t        rc;
+    ngx_buf_t       *b;
+    ngx_msec_t       delay;
+    ngx_chain_t     *chain, *cl, *ln;
+    ngx_msec_int_t   ms;
 
     if (p->upstream_eof || p->upstream_error || p->upstream_done
         || p->upstream == NULL)
@@ -139,6 +146,8 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
 
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, p->log, 0,
                    "pipe read upstream: %d", p->upstream->read->ready);
+
+    excess = 0;
 
     for ( ;; ) {
 
@@ -207,12 +216,19 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
                     break;
                 }
 
-                limit = (off_t) p->limit_rate * (ngx_time() - p->start_sec + 1)
-                        - p->read_length;
+                ms = (ngx_msec_int_t) (ngx_current_msec - p->limit_last);
+                ms = ngx_max(ms, 0);
+
+                excess = (off_t) (p->limit_excess
+                                  - (uint64_t) p->limit_rate * ms / 1000);
+                excess = ngx_max(excess, 0);
+
+                limit = (off_t) p->limit_rate - excess;
 
                 if (limit <= 0) {
                     p->upstream->read->delayed = 1;
-                    delay = (ngx_msec_t) (- limit * 1000 / p->limit_rate + 1);
+                    excess -= (off_t) p->limit_rate / 2;
+                    delay = (ngx_msec_t) (excess * 1000 / p->limit_rate + 1);
                     ngx_add_timer(p->upstream->read, delay);
                     break;
                 }
@@ -340,8 +356,7 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
             }
         }
 
-        delay = p->limit_rate ? (ngx_msec_t) n * 1000 / p->limit_rate : 0;
-
+        sent = n;
         p->read_length += n;
         cl = chain;
         p->free_raw_bufs = NULL;
@@ -379,10 +394,22 @@ ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
             p->free_raw_bufs = cl;
         }
 
-        if (delay > 0) {
-            p->upstream->read->delayed = 1;
-            ngx_add_timer(p->upstream->read, delay);
-            break;
+        if (p->limit_rate) {
+            excess += sent;
+
+            p->limit_last = ngx_current_msec;
+            p->limit_excess = excess;
+
+            excess -= (off_t) p->limit_rate / 2;
+            excess = ngx_max(excess, 0);
+
+            delay = (ngx_msec_t) (excess * 1000 / p->limit_rate);
+
+            if (delay > 0) {
+                p->upstream->read->delayed = 1;
+                ngx_add_timer(p->upstream->read, delay);
+                break;
+            }
         }
     }
 
@@ -1143,4 +1170,43 @@ ngx_event_pipe_drain_chains(ngx_event_pipe_t *p)
             cl = tl;
         }
     }
+}
+
+
+static ngx_int_t
+ngx_event_pipe_min_rate(ngx_event_pipe_t *p, off_t sent)
+{
+    ngx_msec_t      now;
+    ngx_msec_int_t  ms;
+
+    if (p->send_min_rate == 0) {
+        return (sent > 0 || !p->downstream->write->timer_set);
+    }
+
+    now = ngx_current_msec;
+
+    if (p->send_min_last == 0 || !p->downstream->write->timer_set) {
+        p->send_min_last = now;
+        p->send_min_excess = 0;
+        return 1;
+    }
+
+    ms = (ngx_msec_int_t) (now - p->send_min_last);
+    ms = ngx_max(ms, 0);
+
+    ngx_log_debug3(NGX_LOG_DEBUG_EVENT, p->log, 0,
+                   "pipe min rate: %O, %O, %M",
+                   sent, p->send_min_excess, ms);
+
+    if (p->send_min_excess + sent
+        > (off_t) p->send_min_rate * ms / 1000)
+    {
+        p->send_min_last = now;
+        p->send_min_excess = 0;
+        return 1;
+    }
+
+    p->send_min_excess += sent;
+
+    return 0;
 }

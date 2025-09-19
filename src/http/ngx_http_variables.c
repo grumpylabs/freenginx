@@ -932,9 +932,7 @@ ngx_http_variable_unknown_header(ngx_http_request_t *r,
     ngx_table_elt_t  *header, *h, **ph;
 
     ph = &h;
-#if (NGX_SUPPRESS_WARN)
     len = 0;
-#endif
 
     header = part->elts;
 
@@ -1184,16 +1182,19 @@ ngx_http_variable_content_length(ngx_http_request_t *r,
 {
     u_char  *p;
 
-    if (r->headers_in.content_length) {
+    if (r->reading_body && r->headers_in.content_length) {
         v->len = r->headers_in.content_length->value.len;
         v->data = r->headers_in.content_length->value.data;
         v->valid = 1;
-        v->no_cacheable = 0;
+        v->no_cacheable = 1;
         v->not_found = 0;
 
     } else if (r->reading_body) {
         v->not_found = 1;
         v->no_cacheable = 1;
+
+    } else if (r->discard_body) {
+        v->not_found = 1;
 
     } else if (r->headers_in.content_length_n >= 0) {
         p = ngx_pnalloc(r->pool, NGX_OFF_T_LEN);
@@ -1204,7 +1205,7 @@ ngx_http_variable_content_length(ngx_http_request_t *r,
         v->len = ngx_sprintf(p, "%O", r->headers_in.content_length_n) - p;
         v->data = p;
         v->valid = 1;
-        v->no_cacheable = 0;
+        v->no_cacheable = 1;
         v->not_found = 0;
 
     } else if (r->headers_in.chunked) {
@@ -2215,7 +2216,6 @@ ngx_http_variable_request_time(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
     u_char          *p;
-    ngx_time_t      *tp;
     ngx_msec_int_t   ms;
 
     p = ngx_pnalloc(r->pool, NGX_TIME_T_LEN + 4);
@@ -2223,10 +2223,7 @@ ngx_http_variable_request_time(ngx_http_request_t *r,
         return NGX_ERROR;
     }
 
-    tp = ngx_timeofday();
-
-    ms = (ngx_msec_int_t)
-             ((tp->sec - r->start_sec) * 1000 + (tp->msec - r->start_msec));
+    ms = (ngx_msec_int_t) (ngx_current_msec - r->start_time);
     ms = ngx_max(ms, 0);
 
     v->len = ngx_sprintf(p, "%T.%03M", (time_t) ms / 1000, ms % 1000) - p;

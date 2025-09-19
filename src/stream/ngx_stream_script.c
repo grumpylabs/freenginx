@@ -686,7 +686,7 @@ ngx_stream_script_add_copy_code(ngx_stream_script_compile_t *sc,
         return NGX_ERROR;
     }
 
-    code->code = (ngx_stream_script_code_pt) (void *)
+    code->code = (ngx_stream_script_code_pt) (uintptr_t)
                                                ngx_stream_script_copy_len_code;
     code->len = len;
 
@@ -777,7 +777,7 @@ ngx_stream_script_add_var_code(ngx_stream_script_compile_t *sc, ngx_str_t *name)
         return NGX_ERROR;
     }
 
-    code->code = (ngx_stream_script_code_pt) (void *)
+    code->code = (ngx_stream_script_code_pt) (uintptr_t)
                                            ngx_stream_script_copy_var_len_code;
     code->index = (uintptr_t) index;
 
@@ -867,7 +867,7 @@ ngx_stream_script_add_capture_code(ngx_stream_script_compile_t *sc,
         return NGX_ERROR;
     }
 
-    code->code = (ngx_stream_script_code_pt) (void *)
+    code->code = (ngx_stream_script_code_pt) (uintptr_t)
                                        ngx_stream_script_copy_capture_len_code;
     code->n = 2 * n;
 
@@ -959,7 +959,7 @@ ngx_stream_script_add_full_name_code(ngx_stream_script_compile_t *sc)
         return NGX_ERROR;
     }
 
-    code->code = (ngx_stream_script_code_pt) (void *)
+    code->code = (ngx_stream_script_code_pt) (uintptr_t)
                                           ngx_stream_script_full_name_len_code;
     code->conf_prefix = sc->conf_prefix;
 

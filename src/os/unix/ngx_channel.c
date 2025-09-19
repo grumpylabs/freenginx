@@ -31,7 +31,7 @@ ngx_write_channel(ngx_socket_t s, ngx_channel_t *ch, size_t size,
         msg.msg_controllen = 0;
 
     } else {
-        msg.msg_control = (caddr_t) &cmsg;
+        msg.msg_control = (void *) &cmsg;
         msg.msg_controllen = sizeof(cmsg);
 
         ngx_memzero(&cmsg, sizeof(cmsg));
@@ -68,7 +68,7 @@ ngx_write_channel(ngx_socket_t s, ngx_channel_t *ch, size_t size,
 
 #endif
 
-    iov[0].iov_base = (char *) ch;
+    iov[0].iov_base = (void *) ch;
     iov[0].iov_len = size;
 
     msg.msg_name = NULL;
@@ -109,7 +109,7 @@ ngx_read_channel(ngx_socket_t s, ngx_channel_t *ch, size_t size, ngx_log_t *log)
     int                 fd;
 #endif
 
-    iov[0].iov_base = (char *) ch;
+    iov[0].iov_base = (void *) ch;
     iov[0].iov_len = size;
 
     msg.msg_name = NULL;
@@ -118,7 +118,7 @@ ngx_read_channel(ngx_socket_t s, ngx_channel_t *ch, size_t size, ngx_log_t *log)
     msg.msg_iovlen = 1;
 
 #if (NGX_HAVE_MSGHDR_MSG_CONTROL)
-    msg.msg_control = (caddr_t) &cmsg;
+    msg.msg_control = (void *) &cmsg;
     msg.msg_controllen = sizeof(cmsg);
 #else
     msg.msg_accrights = (caddr_t) &fd;

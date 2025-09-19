@@ -54,6 +54,7 @@ typedef struct {
     ngx_uint_t                 ssl_verify_depth;
     ngx_str_t                  ssl_trusted_certificate;
     ngx_str_t                  ssl_crl;
+    ngx_array_t               *ssl_passwords;
     ngx_array_t               *ssl_conf_commands;
 #endif
 } ngx_http_uwsgi_loc_conf_t;
@@ -656,7 +657,7 @@ ngx_http_uwsgi_handler(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    status = ngx_pcalloc(r->pool, sizeof(ngx_http_status_t));
+    status = ngx_palloc(r->pool, sizeof(ngx_http_status_t));
     if (status == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -1213,19 +1214,6 @@ ngx_http_uwsgi_create_request(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_uwsgi_reinit_request(ngx_http_request_t *r)
 {
-    ngx_http_status_t  *status;
-
-    status = ngx_http_get_module_ctx(r, ngx_http_uwsgi_module);
-
-    if (status == NULL) {
-        return NGX_OK;
-    }
-
-    status->code = 0;
-    status->count = 0;
-    status->start = NULL;
-    status->end = NULL;
-
     r->upstream->process_header = ngx_http_uwsgi_process_status_line;
     r->state = 0;
 
@@ -1258,10 +1246,6 @@ ngx_http_uwsgi_process_status_line(ngx_http_request_t *r)
     if (rc == NGX_ERROR) {
         u->process_header = ngx_http_uwsgi_process_header;
         return ngx_http_uwsgi_process_header(r);
-    }
-
-    if (u->state && u->state->status == 0) {
-        u->state->status = status->code;
     }
 
     u->headers_in.status_n = status->code;
@@ -1396,16 +1380,38 @@ ngx_http_uwsgi_process_header(ngx_http_request_t *r)
                 ngx_str_set(&u->headers_in.status_line, "200 OK");
             }
 
-            if (u->state && u->state->status == 0) {
-                u->state->status = u->headers_in.status_n;
-            }
-
         done:
 
             if (u->headers_in.status_n == NGX_HTTP_SWITCHING_PROTOCOLS
                 && r->headers_in.upgrade)
             {
                 u->upgrade = 1;
+
+            } else if (u->headers_in.status_n == NGX_HTTP_SWITCHING_PROTOCOLS
+                       || u->headers_in.status_n < NGX_HTTP_CONTINUE)
+            {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                              "upstream sent unexpected status \"%V\"",
+                              u->headers_in.status_line.len
+                              ? &u->headers_in.status_line
+                              : &u->headers_in.status->value);
+
+                return NGX_HTTP_UPSTREAM_INVALID_HEADER;
+
+            } else if (u->headers_in.status_n < NGX_HTTP_OK) {
+
+                /* ignore unexpected 1xx responses */
+
+                ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                               "http uwsgi 1xx ignored");
+
+                u->process_header = ngx_http_uwsgi_process_status_line;
+
+                if (ngx_http_upstream_clear_headers(r, u) != NGX_OK) {
+                    return NGX_ERROR;
+                }
+
+                return ngx_http_uwsgi_process_status_line(r);
             }
 
             return NGX_OK;
@@ -1568,14 +1574,14 @@ ngx_http_uwsgi_create_loc_conf(ngx_conf_t *cf)
     conf->ssl_verify_depth = NGX_CONF_UNSET_UINT;
     conf->upstream.ssl_certificate = NGX_CONF_UNSET_PTR;
     conf->upstream.ssl_certificate_key = NGX_CONF_UNSET_PTR;
-    conf->upstream.ssl_passwords = NGX_CONF_UNSET_PTR;
+    conf->ssl_passwords = NGX_CONF_UNSET_PTR;
     conf->ssl_conf_commands = NGX_CONF_UNSET_PTR;
 #endif
 
-    /* "uwsgi_cyclic_temp_file" is disabled */
+    /* the hardcoded values */
     conf->upstream.cyclic_temp_file = 0;
-
     conf->upstream.change_buffering = 1;
+    conf->upstream.duplicate_chunked = 0;
 
     ngx_str_set(&conf->upstream.module, "uwsgi");
 
@@ -1901,8 +1907,8 @@ ngx_http_uwsgi_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
                               prev->upstream.ssl_certificate, NULL);
     ngx_conf_merge_ptr_value(conf->upstream.ssl_certificate_key,
                               prev->upstream.ssl_certificate_key, NULL);
-    ngx_conf_merge_ptr_value(conf->upstream.ssl_passwords,
-                              prev->upstream.ssl_passwords, NULL);
+    ngx_conf_merge_ptr_value(conf->ssl_passwords,
+                              prev->ssl_passwords, NULL);
 
     ngx_conf_merge_ptr_value(conf->ssl_conf_commands,
                               prev->ssl_conf_commands, NULL);
@@ -2118,7 +2124,7 @@ ngx_http_uwsgi_init_params(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *conf,
             return NGX_ERROR;
         }
 
-        copy->code = (ngx_http_script_code_pt) (void *)
+        copy->code = (ngx_http_script_code_pt) (uintptr_t)
                                                  ngx_http_script_copy_len_code;
         copy->len = src[i].key.len;
 
@@ -2128,7 +2134,7 @@ ngx_http_uwsgi_init_params(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *conf,
             return NGX_ERROR;
         }
 
-        copy->code = (ngx_http_script_code_pt) (void *)
+        copy->code = (ngx_http_script_code_pt) (uintptr_t)
                                                  ngx_http_script_copy_len_code;
         copy->len = src[i].skip_empty;
 
@@ -2437,15 +2443,15 @@ ngx_http_uwsgi_ssl_password_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     ngx_str_t  *value;
 
-    if (uwcf->upstream.ssl_passwords != NGX_CONF_UNSET_PTR) {
+    if (uwcf->ssl_passwords != NGX_CONF_UNSET_PTR) {
         return "is duplicate";
     }
 
     value = cf->args->elts;
 
-    uwcf->upstream.ssl_passwords = ngx_ssl_read_password_file(cf, &value[1]);
+    uwcf->ssl_passwords = ngx_ssl_read_password_file(cf, &value[1]);
 
-    if (uwcf->upstream.ssl_passwords == NULL) {
+    if (uwcf->ssl_passwords == NULL) {
         return NGX_CONF_ERROR;
     }
 
@@ -2474,7 +2480,7 @@ ngx_http_uwsgi_merge_ssl(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *conf,
         && conf->ssl_ciphers.data == NULL
         && conf->upstream.ssl_certificate == NGX_CONF_UNSET_PTR
         && conf->upstream.ssl_certificate_key == NGX_CONF_UNSET_PTR
-        && conf->upstream.ssl_passwords == NGX_CONF_UNSET_PTR
+        && conf->ssl_passwords == NGX_CONF_UNSET_PTR
         && conf->upstream.ssl_verify == NGX_CONF_UNSET
         && conf->ssl_verify_depth == NGX_CONF_UNSET_UINT
         && conf->ssl_trusted_certificate.data == NULL
@@ -2519,6 +2525,19 @@ ngx_http_uwsgi_set_ssl(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *uwcf)
     ngx_pool_cleanup_t  *cln;
 
     if (uwcf->upstream.ssl->ctx) {
+
+        if (uwcf->upstream.ssl_certificate
+            && uwcf->upstream.ssl_certificate->value.len
+            && (uwcf->upstream.ssl_certificate->lengths
+                || uwcf->upstream.ssl_certificate_key->lengths))
+        {
+            uwcf->upstream.ssl_passwords =
+                  ngx_ssl_preserve_passwords(cf, uwcf->ssl_passwords);
+            if (uwcf->upstream.ssl_passwords == NULL) {
+                return NGX_ERROR;
+            }
+        }
+
         return NGX_OK;
     }
 
@@ -2558,7 +2577,7 @@ ngx_http_uwsgi_set_ssl(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *uwcf)
             || uwcf->upstream.ssl_certificate_key->lengths)
         {
             uwcf->upstream.ssl_passwords =
-                  ngx_ssl_preserve_passwords(cf, uwcf->upstream.ssl_passwords);
+                  ngx_ssl_preserve_passwords(cf, uwcf->ssl_passwords);
             if (uwcf->upstream.ssl_passwords == NULL) {
                 return NGX_ERROR;
             }
@@ -2567,7 +2586,7 @@ ngx_http_uwsgi_set_ssl(ngx_conf_t *cf, ngx_http_uwsgi_loc_conf_t *uwcf)
             if (ngx_ssl_certificate(cf, uwcf->upstream.ssl,
                                     &uwcf->upstream.ssl_certificate->value,
                                     &uwcf->upstream.ssl_certificate_key->value,
-                                    uwcf->upstream.ssl_passwords)
+                                    uwcf->ssl_passwords)
                 != NGX_OK)
             {
                 return NGX_ERROR;

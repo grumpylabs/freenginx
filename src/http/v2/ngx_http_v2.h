@@ -162,7 +162,10 @@ struct ngx_http_v2_connection_s {
     ngx_uint_t                       closed_nodes;
     ngx_uint_t                       last_sid;
 
-    time_t                           lingering_time;
+    ngx_msec_t                       lingering_time;
+
+    ngx_msec_t                       send_min_last;
+    off_t                            send_min_excess;
 
     unsigned                         settings_ack:1;
     unsigned                         table_update:1;

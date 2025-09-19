@@ -310,6 +310,10 @@ static ngx_stream_variable_t  ngx_stream_ssl_vars[] = {
     { ngx_string("ssl_client_fingerprint"), NULL, ngx_stream_ssl_variable,
       (uintptr_t) ngx_ssl_get_fingerprint, NGX_STREAM_VAR_CHANGEABLE, 0 },
 
+    { ngx_string("ssl_client_fingerprint_sha256"), NULL,
+      ngx_stream_ssl_variable, (uintptr_t) ngx_ssl_get_fingerprint_sha256,
+      NGX_STREAM_VAR_CHANGEABLE, 0 },
+
     { ngx_string("ssl_client_verify"), NULL, ngx_stream_ssl_variable,
       (uintptr_t) ngx_ssl_get_client_verify, NGX_STREAM_VAR_CHANGEABLE, 0 },
 

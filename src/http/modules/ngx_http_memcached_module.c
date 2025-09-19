@@ -422,7 +422,6 @@ found:
         }
 
         u->headers_in.status_n = 200;
-        u->state->status = 200;
         u->buffer.pos = p + sizeof(CRLF) - 1;
 
         return NGX_OK;
@@ -434,7 +433,6 @@ found:
 
         u->headers_in.content_length_n = 0;
         u->headers_in.status_n = 404;
-        u->state->status = 404;
         u->buffer.pos = p + sizeof("END" CRLF) - 1;
         u->keepalive = 1;
 
@@ -629,6 +627,7 @@ ngx_http_memcached_create_loc_conf(ngx_conf_t *cf)
     conf->upstream.pass_request_headers = 0;
     conf->upstream.pass_request_body = 0;
     conf->upstream.force_ranges = 1;
+    conf->upstream.duplicate_chunked = 0;
 
     conf->index = NGX_CONF_UNSET;
     conf->gzip_flag = NGX_CONF_UNSET_UINT;

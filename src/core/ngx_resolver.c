@@ -1774,7 +1774,7 @@ ngx_resolver_process_response(ngx_resolver_t *r, u_char *buf, size_t n,
                    (response->nar_hi << 8) + response->nar_lo);
 
     /* response to a standard query */
-    if ((flags & 0xf870) != 0x8000 || (trunc && tcp)) {
+    if ((flags & 0xf850) != 0x8000 || (trunc && tcp)) {
         ngx_log_error(r->log_level, r->log, 0,
                       "invalid %s DNS response %ui fl:%04Xi",
                       tcp ? "TCP" : "UDP", ident, flags);
@@ -2194,7 +2194,7 @@ ngx_resolver_process_a(ngx_resolver_t *r, u_char *buf, size_t n,
         type = (an->type_hi << 8) + an->type_lo;
         class = (an->class_hi << 8) + an->class_lo;
         len = (an->len_hi << 8) + an->len_lo;
-        ttl = (an->ttl[0] << 24) + (an->ttl[1] << 16)
+        ttl = ((uint32_t) an->ttl[0] << 24) + (an->ttl[1] << 16)
             + (an->ttl[2] << 8) + (an->ttl[3]);
 
         if (class != 1) {
@@ -2356,7 +2356,7 @@ ngx_resolver_process_a(ngx_resolver_t *r, u_char *buf, size_t n,
 
             if (type == NGX_RESOLVE_A) {
 
-                addr[j] = htonl((buf[i] << 24) + (buf[i + 1] << 16)
+                addr[j] = htonl(((uint32_t) buf[i] << 24) + (buf[i + 1] << 16)
                                 + (buf[i + 2] << 8) + (buf[i + 3]));
 
                 if (++j == naddrs) {
@@ -2736,7 +2736,7 @@ ngx_resolver_process_srv(ngx_resolver_t *r, u_char *buf, size_t n,
         type = (an->type_hi << 8) + an->type_lo;
         class = (an->class_hi << 8) + an->class_lo;
         len = (an->len_hi << 8) + an->len_lo;
-        ttl = (an->ttl[0] << 24) + (an->ttl[1] << 16)
+        ttl = ((uint32_t) an->ttl[0] << 24) + (an->ttl[1] << 16)
             + (an->ttl[2] << 8) + (an->ttl[3]);
 
         if (class != 1) {
@@ -3142,7 +3142,7 @@ ngx_resolver_process_ptr(ngx_resolver_t *r, u_char *buf, size_t n,
             goto invalid_in_addr_arpa;
         }
 
-        addr += octet << mask;
+        addr += (in_addr_t) octet << mask;
         i += len;
     }
 
@@ -3301,7 +3301,7 @@ valid:
         type = (an->type_hi << 8) + an->type_lo;
         class = (an->class_hi << 8) + an->class_lo;
         len = (an->len_hi << 8) + an->len_lo;
-        ttl = (an->ttl[0] << 24) + (an->ttl[1] << 16)
+        ttl = ((uint32_t) an->ttl[0] << 24) + (an->ttl[1] << 16)
             + (an->ttl[2] << 8) + (an->ttl[3]);
 
         if (class != 1) {
@@ -4625,7 +4625,8 @@ ngx_tcp_connect(ngx_resolver_connection_t *rec)
                 || err == NGX_ENETDOWN
                 || err == NGX_ENETUNREACH
                 || err == NGX_EHOSTDOWN
-                || err == NGX_EHOSTUNREACH)
+                || err == NGX_EHOSTUNREACH
+                || err == NGX_ENOENT)
             {
                 level = NGX_LOG_ERR;
 

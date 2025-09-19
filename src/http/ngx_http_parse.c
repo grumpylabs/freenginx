@@ -106,6 +106,8 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
     u_char  c, ch, *p, *m;
     enum {
         sw_start = 0,
+        sw_newline,
+        sw_method_start,
         sw_method,
         sw_spaces_before_uri,
         sw_schema,
@@ -143,9 +145,34 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
         case sw_start:
             r->request_start = p;
 
-            if (ch == CR || ch == LF) {
+            if (ch == CR) {
+                state = sw_newline;
                 break;
             }
+
+            if (ch == LF) {
+                state = sw_method_start;
+                break;
+            }
+
+            if ((ch < 'A' || ch > 'Z') && ch != '_' && ch != '-') {
+                return NGX_HTTP_PARSE_INVALID_METHOD;
+            }
+
+            state = sw_method;
+            break;
+
+        case sw_newline:
+
+            if (ch == LF) {
+                state = sw_method_start;
+                break;
+            }
+
+            return NGX_HTTP_PARSE_INVALID_REQUEST;
+
+        case sw_method_start:
+            r->request_start = p;
 
             if ((ch < 'A' || ch > 'Z') && ch != '_' && ch != '-') {
                 return NGX_HTTP_PARSE_INVALID_METHOD;
@@ -365,7 +392,16 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
                 break;
             }
 
-            if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
+            if (ch >= '0' && ch <= '9') {
+                break;
+            }
+
+            if (ch == '.' || ch == '-' || ch == '_' || ch == '~'
+                || ch == '!' || ch == '$' || ch == '&' || ch == '\''
+                || ch == '(' || ch == ')' || ch == '*' || ch == '+'
+                || ch == ',' || ch == ';' || ch == '=' || ch == '%')
+            {
+                /* unreserved, sub-delims, pct-encoded */
                 break;
             }
 
@@ -414,30 +450,22 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
                 break;
             }
 
-            switch (ch) {
-            case ':':
+            if (ch == ':') {
                 break;
+            }
+
+            if (ch == '.' || ch == '-' || ch == '_' || ch == '~'
+                || ch == '!' || ch == '$' || ch == '&' || ch == '\''
+                || ch == '(' || ch == ')' || ch == '*' || ch == '+'
+                || ch == ',' || ch == ';' || ch == '=' || ch == '%')
+            {
+                /* unreserved, sub-delims, pct-encoded */
+                break;
+            }
+
+            switch (ch) {
             case ']':
                 state = sw_host_end;
-                break;
-            case '-':
-            case '.':
-            case '_':
-            case '~':
-                /* unreserved */
-                break;
-            case '!':
-            case '$':
-            case '&':
-            case '\'':
-            case '(':
-            case ')':
-            case '*':
-            case '+':
-            case ',':
-            case ';':
-            case '=':
-                /* sub-delims */
                 break;
             default:
                 return NGX_HTTP_PARSE_INVALID_REQUEST;
@@ -932,21 +960,6 @@ ngx_http_parse_header_line(ngx_http_request_t *r, ngx_buf_t *b,
                 r->header_name_end = p;
                 state = sw_space_before_value;
                 break;
-            }
-
-            if (ch == CR) {
-                r->header_name_end = p;
-                r->header_start = p;
-                r->header_end = p;
-                state = sw_almost_done;
-                break;
-            }
-
-            if (ch == LF) {
-                r->header_name_end = p;
-                r->header_start = p;
-                r->header_end = p;
-                goto done;
             }
 
             /* IIS may send the duplicate "HTTP/1.1 ..." lines */
@@ -1633,7 +1646,9 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
         sw_major_digit,
         sw_first_minor_digit,
         sw_minor_digit,
-        sw_status,
+        sw_first_status_digit,
+        sw_second_status_digit,
+        sw_third_status_digit,
         sw_space_after_status,
         sw_status_text,
         sw_almost_done
@@ -1738,7 +1753,7 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
         /* the minor HTTP version or the end of the request line */
         case sw_minor_digit:
             if (ch == ' ') {
-                state = sw_status;
+                state = sw_first_status_digit;
                 break;
             }
 
@@ -1753,8 +1768,8 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
             r->http_minor = r->http_minor * 10 + (ch - '0');
             break;
 
-        /* HTTP status code */
-        case sw_status:
+        /* the first digit of HTTP status code */
+        case sw_first_status_digit:
             if (ch == ' ') {
                 break;
             }
@@ -1763,13 +1778,29 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
                 return NGX_ERROR;
             }
 
-            status->code = status->code * 10 + (ch - '0');
+            status->code = ch - '0';
+            status->start = p;
+            state = sw_second_status_digit;
+            break;
 
-            if (++status->count == 3) {
-                state = sw_space_after_status;
-                status->start = p - 2;
+        /* the second digit of HTTP status code */
+        case sw_second_status_digit:
+            if (ch < '0' || ch > '9') {
+                return NGX_ERROR;
             }
 
+            status->code = status->code * 10 + (ch - '0');
+            state = sw_third_status_digit;
+            break;
+
+        /* the third digit of HTTP status code */
+        case sw_third_status_digit:
+            if (ch < '0' || ch > '9') {
+                return NGX_ERROR;
+            }
+
+            status->code = status->code * 10 + (ch - '0');
+            state = sw_space_after_status;
             break;
 
         /* space or end of line */
@@ -1785,6 +1816,7 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
                 state = sw_almost_done;
                 break;
             case LF:
+                status->end = p;
                 goto done;
             default:
                 return NGX_ERROR;
@@ -1796,9 +1828,9 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
             switch (ch) {
             case CR:
                 state = sw_almost_done;
-
                 break;
             case LF:
+                status->end = p;
                 goto done;
             }
             break;
@@ -1823,10 +1855,6 @@ ngx_http_parse_status_line(ngx_http_request_t *r, ngx_buf_t *b,
 done:
 
     b->pos = p + 1;
-
-    if (status->end == NULL) {
-        status->end = p;
-    }
 
     status->http_version = r->http_major * 1000 + r->http_minor;
     r->state = sw_start;
@@ -2134,6 +2162,7 @@ ngx_http_split_args(ngx_http_request_t *r, ngx_str_t *uri, ngx_str_t *args)
 
     } else {
         args->len = 0;
+        args->data = NULL;
     }
 }
 
@@ -2257,6 +2286,9 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_chunk_data;
+                break;
+            default:
+                ctx->skipped++;
             }
             break;
 
@@ -2298,6 +2330,9 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_trailer;
+                break;
+            default:
+                ctx->skipped++;
             }
             break;
 
@@ -2333,6 +2368,9 @@ ngx_http_parse_chunked(ngx_http_request_t *r, ngx_buf_t *b,
                 break;
             case LF:
                 state = sw_trailer;
+                break;
+            default:
+                ctx->skipped++;
             }
             break;
 

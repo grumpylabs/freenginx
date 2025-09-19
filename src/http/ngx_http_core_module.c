@@ -252,6 +252,13 @@ static ngx_command_t  ngx_http_core_commands[] = {
       offsetof(ngx_http_core_srv_conf_t, large_client_header_buffers),
       NULL },
 
+    { ngx_string("max_headers"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      offsetof(ngx_http_core_srv_conf_t, max_headers),
+      NULL },
+
     { ngx_string("ignore_invalid_headers"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -366,6 +373,13 @@ static ngx_command_t  ngx_http_core_commands[] = {
       offsetof(ngx_http_core_loc_conf_t, client_body_timeout),
       NULL },
 
+    { ngx_string("client_body_min_rate"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_core_loc_conf_t, client_body_min_rate),
+      NULL },
+
     { ngx_string("client_body_temp_path"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1234,
       ngx_conf_set_path_slot,
@@ -463,6 +477,13 @@ static ngx_command_t  ngx_http_core_commands[] = {
       ngx_conf_set_msec_slot,
       NGX_HTTP_LOC_CONF_OFFSET,
       offsetof(ngx_http_core_loc_conf_t, send_timeout),
+      NULL },
+
+    { ngx_string("send_min_rate"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_size_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_core_loc_conf_t, send_min_rate),
       NULL },
 
     { ngx_string("send_lowat"),
@@ -2316,7 +2337,6 @@ ngx_http_subrequest(ngx_http_request_t *r,
     ngx_str_t *uri, ngx_str_t *args, ngx_http_request_t **psr,
     ngx_http_post_subrequest_t *ps, ngx_uint_t flags)
 {
-    ngx_time_t                    *tp;
     ngx_connection_t              *c;
     ngx_http_request_t            *sr;
     ngx_http_core_srv_conf_t      *cscf;
@@ -2456,15 +2476,14 @@ ngx_http_subrequest(ngx_http_request_t *r,
     sr->internal = 1;
 
     sr->discard_body = r->discard_body;
+    sr->discarding_body = r->discarding_body;
     sr->expect_tested = 1;
     sr->main_filter_need_in_memory = r->main_filter_need_in_memory;
 
     sr->uri_changes = NGX_HTTP_MAX_URI_CHANGES + 1;
     sr->subrequests = r->subrequests - 1;
 
-    tp = ngx_timeofday();
-    sr->start_sec = tp->sec;
-    sr->start_msec = tp->msec;
+    sr->start_time = ngx_current_msec;
 
     r->main->count++;
 
@@ -2595,6 +2614,8 @@ ngx_http_named_location(ngx_http_request_t *r, ngx_str_t *name)
             ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                            "using location: %V \"%V?%V\"",
                            name, &r->uri, &r->args);
+
+            r->connection->log->action = NULL;
 
             r->internal = 1;
             r->content_handler = NULL;
@@ -3460,6 +3481,7 @@ ngx_http_core_create_srv_conf(ngx_conf_t *cf)
     cscf->request_pool_size = NGX_CONF_UNSET_SIZE;
     cscf->client_header_timeout = NGX_CONF_UNSET_MSEC;
     cscf->client_header_buffer_size = NGX_CONF_UNSET_SIZE;
+    cscf->max_headers = NGX_CONF_UNSET_UINT;
     cscf->ignore_invalid_headers = NGX_CONF_UNSET;
     cscf->merge_slashes = NGX_CONF_UNSET;
     cscf->underscores_in_headers = NGX_CONF_UNSET;
@@ -3500,6 +3522,8 @@ ngx_http_core_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                            "equal to or greater than \"connection_pool_size\"");
         return NGX_CONF_ERROR;
     }
+
+    ngx_conf_merge_uint_value(conf->max_headers, prev->max_headers, 1000);
 
     ngx_conf_merge_value(conf->ignore_invalid_headers,
                               prev->ignore_invalid_headers, 1);
@@ -3577,6 +3601,7 @@ ngx_http_core_create_loc_conf(ngx_conf_t *cf)
     clcf->client_max_body_size = NGX_CONF_UNSET;
     clcf->client_body_buffer_size = NGX_CONF_UNSET_SIZE;
     clcf->client_body_timeout = NGX_CONF_UNSET_MSEC;
+    clcf->client_body_min_rate = NGX_CONF_UNSET_SIZE;
     clcf->satisfy = NGX_CONF_UNSET_UINT;
     clcf->auth_delay = NGX_CONF_UNSET_MSEC;
     clcf->if_modified_since = NGX_CONF_UNSET_UINT;
@@ -3599,6 +3624,7 @@ ngx_http_core_create_loc_conf(ngx_conf_t *cf)
     clcf->tcp_nopush = NGX_CONF_UNSET;
     clcf->tcp_nodelay = NGX_CONF_UNSET;
     clcf->send_timeout = NGX_CONF_UNSET_MSEC;
+    clcf->send_min_rate = NGX_CONF_UNSET_SIZE;
     clcf->send_lowat = NGX_CONF_UNSET_SIZE;
     clcf->postpone_output = NGX_CONF_UNSET_SIZE;
     clcf->limit_rate = NGX_CONF_UNSET_PTR;
@@ -3830,6 +3856,7 @@ ngx_http_core_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(conf->tcp_nodelay, prev->tcp_nodelay, 1);
 
     ngx_conf_merge_msec_value(conf->send_timeout, prev->send_timeout, 60000);
+    ngx_conf_merge_size_value(conf->send_min_rate, prev->send_min_rate, 0);
     ngx_conf_merge_size_value(conf->send_lowat, prev->send_lowat, 0);
     ngx_conf_merge_size_value(conf->postpone_output, prev->postpone_output,
                               1460);
@@ -4166,6 +4193,19 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             continue;
         }
 
+        if (ngx_strcmp(value[n].data, "multipath") == 0) {
+#if (NGX_HAVE_MULTIPATH)
+            lsopt.multipath = 1;
+            lsopt.set = 1;
+            lsopt.bind = 1;
+#else
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "multipath is not supported "
+                               "on this platform, ignored");
+#endif
+            continue;
+        }
+
         if (ngx_strcmp(value[n].data, "ssl") == 0) {
 #if (NGX_HTTP_SSL)
             lsopt.ssl = 1;
@@ -4329,6 +4369,12 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined TCP_DEFER_ACCEPT)
         if (lsopt.deferred_accept) {
             return "\"deferred\" parameter is incompatible with \"quic\"";
+        }
+#endif
+
+#if (NGX_HAVE_MULTIPATH)
+        if (lsopt.multipath) {
+            return "\"multipath\" parameter is incompatible with \"quic\"";
         }
 #endif
 
@@ -4949,6 +4995,8 @@ ngx_http_core_error_page(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static char *
 ngx_http_core_open_file_cache(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
+#if (NGX_HAVE_PREAD || NGX_WIN32)
+
     ngx_http_core_loc_conf_t *clcf = conf;
 
     time_t       inactive;
@@ -5016,11 +5064,17 @@ ngx_http_core_open_file_cache(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     clcf->open_file_cache = ngx_open_file_cache_init(cf->pool, max, inactive);
-    if (clcf->open_file_cache) {
-        return NGX_CONF_OK;
+    if (clcf->open_file_cache == NULL) {
+        return NGX_CONF_ERROR;
     }
 
-    return NGX_CONF_ERROR;
+#else
+    ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                       "\"open_file_cache\" is not supported "
+                       "on this platform, ignored");
+#endif
+
+    return NGX_CONF_OK;
 }
 
 

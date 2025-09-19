@@ -42,26 +42,24 @@ if [ $ZLIB != NONE ]; then
 
 else
 
-    if [ "$NGX_PLATFORM" != win32 ]; then
-        ZLIB=NO
+    ZLIB=NO
 
-        # FreeBSD, Solaris, Linux
+    # FreeBSD, Solaris, Linux
 
-        ngx_feature="zlib library"
-        ngx_feature_name="NGX_ZLIB"
-        ngx_feature_run=no
-        ngx_feature_incs="#include <zlib.h>"
-        ngx_feature_path=
-        ngx_feature_libs="-lz"
-        ngx_feature_test="z_stream z; deflate(&z, Z_NO_FLUSH)"
-        . auto/feature
+    ngx_feature="zlib library"
+    ngx_feature_name="NGX_ZLIB"
+    ngx_feature_run=no
+    ngx_feature_incs="#include <zlib.h>"
+    ngx_feature_path=
+    ngx_feature_libs="-lz"
+    ngx_feature_test="z_stream z; deflate(&z, Z_NO_FLUSH)"
+    . auto/feature
 
 
-        if [ $ngx_found = yes ]; then
-            CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
-            ZLIB=YES
-            ngx_found=no
-        fi
+    if [ $ngx_found = yes ]; then
+        CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+        ZLIB=YES
+        ngx_found=no
     fi
 
     if [ $ZLIB != YES ]; then

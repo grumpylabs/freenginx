@@ -2063,8 +2063,30 @@ ngx_http_fastcgi_process_header(ngx_http_request_t *r)
                     ngx_str_set(&u->headers_in.status_line, "200 OK");
                 }
 
-                if (u->state && u->state->status == 0) {
-                    u->state->status = u->headers_in.status_n;
+                if (u->headers_in.status_n == NGX_HTTP_SWITCHING_PROTOCOLS
+                    || u->headers_in.status_n < NGX_HTTP_CONTINUE)
+                {
+                    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                                  "upstream sent unexpected status \"%V\"",
+                                  u->headers_in.status_line.len
+                                  ? &u->headers_in.status_line
+                                  : &u->headers_in.status->value);
+
+                    return NGX_HTTP_UPSTREAM_INVALID_HEADER;
+
+                } else if (u->headers_in.status_n < NGX_HTTP_OK) {
+
+                    /* ignore unexpected 1xx responses */
+
+                    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                                   "http fastcgi 1xx ignored");
+
+                    if (ngx_http_upstream_clear_headers(r, u) != NGX_OK) {
+                        return NGX_ERROR;
+                    }
+
+                    rc = NGX_OK;
+                    break;
                 }
 
                 break;
@@ -2926,10 +2948,10 @@ ngx_http_fastcgi_create_loc_conf(ngx_conf_t *cf)
 
     conf->upstream.intercept_errors = NGX_CONF_UNSET;
 
-    /* "fastcgi_cyclic_temp_file" is disabled */
+    /* the hardcoded values */
     conf->upstream.cyclic_temp_file = 0;
-
     conf->upstream.change_buffering = 1;
+    conf->upstream.duplicate_chunked = 0;
 
     conf->catch_stderr = NGX_CONF_UNSET_PTR;
 
@@ -3436,7 +3458,7 @@ ngx_http_fastcgi_init_params(ngx_conf_t *cf, ngx_http_fastcgi_loc_conf_t *conf,
             return NGX_ERROR;
         }
 
-        copy->code = (ngx_http_script_code_pt) (void *)
+        copy->code = (ngx_http_script_code_pt) (uintptr_t)
                                                  ngx_http_script_copy_len_code;
         copy->len = src[i].key.len;
 
@@ -3446,7 +3468,7 @@ ngx_http_fastcgi_init_params(ngx_conf_t *cf, ngx_http_fastcgi_loc_conf_t *conf,
             return NGX_ERROR;
         }
 
-        copy->code = (ngx_http_script_code_pt) (void *)
+        copy->code = (ngx_http_script_code_pt) (uintptr_t)
                                                  ngx_http_script_copy_len_code;
         copy->len = src[i].skip_empty;
 
