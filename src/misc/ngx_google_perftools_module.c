@@ -19,6 +19,7 @@ void ProfilerRegisterThread(void);
 
 
 static void *ngx_google_perftools_create_conf(ngx_cycle_t *cycle);
+static char *ngx_google_perftools_init_conf(ngx_cycle_t *cycle, void *conf);
 static ngx_int_t ngx_google_perftools_worker(ngx_cycle_t *cycle);
 
 
@@ -43,7 +44,7 @@ static ngx_command_t  ngx_google_perftools_commands[] = {
 static ngx_core_module_t  ngx_google_perftools_module_ctx = {
     ngx_string("google_perftools"),
     ngx_google_perftools_create_conf,
-    NULL
+    ngx_google_perftools_init_conf
 };
 
 
@@ -80,6 +81,21 @@ ngx_google_perftools_create_conf(ngx_cycle_t *cycle)
      */
 
     return gptcf;
+}
+
+
+static char *
+ngx_google_perftools_init_conf(ngx_cycle_t *cycle, void *conf)
+{
+    ngx_google_perftools_conf_t  *gptcf = conf;
+
+    if (gptcf->profiles.len) {
+        if (ngx_conf_full_name(cycle, &gptcf->profiles, 0) != NGX_OK) {
+            return NGX_CONF_ERROR;
+        }
+    }
+
+    return NGX_CONF_OK;
 }
 
 

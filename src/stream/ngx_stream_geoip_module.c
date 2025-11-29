@@ -635,6 +635,10 @@ ngx_stream_geoip_country(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     value = cf->args->elts;
 
+    if (ngx_conf_full_name(cf->cycle, &value[1], 0) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
     gcf->country = GeoIP_open((char *) value[1].data, GEOIP_MEMORY_CACHE);
 
     if (gcf->country == NULL) {
@@ -689,6 +693,10 @@ ngx_stream_geoip_org(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     value = cf->args->elts;
+
+    if (ngx_conf_full_name(cf->cycle, &value[1], 0) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
 
     gcf->org = GeoIP_open((char *) value[1].data, GEOIP_MEMORY_CACHE);
 
@@ -750,6 +758,10 @@ ngx_stream_geoip_city(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     value = cf->args->elts;
+
+    if (ngx_conf_full_name(cf->cycle, &value[1], 0) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
 
     gcf->city = GeoIP_open((char *) value[1].data, GEOIP_MEMORY_CACHE);
 

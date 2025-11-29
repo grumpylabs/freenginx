@@ -39,6 +39,13 @@
 #include <openssl/rand.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#ifdef SSL_R_UNSUPPORTED_ECH_SERVER_CONFIG
+#include <openssl/hpke.h>
+#endif
+#ifdef ERR_R_OSSL_STORE_LIB
+#include <openssl/ui.h>
+#include <openssl/store.h>
+#endif
 
 #define NGX_SSL_NAME     "OpenSSL"
 
@@ -232,6 +239,8 @@ ngx_int_t ngx_ssl_dhparam(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *file);
 ngx_int_t ngx_ssl_ecdh_curve(ngx_conf_t *cf, ngx_ssl_t *ssl, ngx_str_t *name);
 ngx_int_t ngx_ssl_early_data(ngx_conf_t *cf, ngx_ssl_t *ssl,
     ngx_uint_t enable);
+ngx_int_t ngx_ssl_encrypted_hello_keys(ngx_conf_t *cf, ngx_ssl_t *ssl,
+    ngx_array_t *paths);
 ngx_int_t ngx_ssl_conf_commands(ngx_conf_t *cf, ngx_ssl_t *ssl,
     ngx_array_t *commands);
 
@@ -283,6 +292,8 @@ ngx_int_t ngx_ssl_get_session_id(ngx_connection_t *c, ngx_pool_t *pool,
 ngx_int_t ngx_ssl_get_session_reused(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
 ngx_int_t ngx_ssl_get_early_data(ngx_connection_t *c, ngx_pool_t *pool,
+    ngx_str_t *s);
+ngx_int_t ngx_ssl_get_encrypted_hello(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
 ngx_int_t ngx_ssl_get_server_name(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
