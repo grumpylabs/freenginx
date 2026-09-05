@@ -1,0 +1,218 @@
+name: build
+
+# Sniff test for the freenginx mirror: every sync push must produce source that
+# compiles and serves real traffic. The repo is an rsync snapshot of
+# freenginx.org/hg/nginx, so a truncated or corrupt sync would otherwise land
+# silently -- nothing else verifies the tree is intact.
+#
+# NOTE: upstream hg has no .github/, so the sync process must be configured to
+# exclude this directory from its `rsync --delete` -- otherwise this file is
+# removed on the next sync.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch toolchain/dependency rot while upstream is quiet
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build & smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record synced revision
+        run: |
+          echo "hg revision: $(cat .last_hg_sync 2>/dev/null || echo 'no marker')"
+          grep -E '#define NGINX_VERSION' src/core/nginx.h
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpcre2-dev zlib1g-dev libssl-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install pcre2
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          ./auto/configure \
+            --prefix="$GITHUB_WORKSPACE/_install" \
+            --with-http_ssl_module \
+            --with-http_v2_module \
+            --with-http_v3_module \
+            --with-stream \
+            2>&1 | tee configure.log
+
+      - name: Configure (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Homebrew pcre2 and openssl@3 are keg-only. Deliberately no -L for
+          # zlib: keg-only zlib has no such lib dir and the flag only produces
+          # a linker warning; the SDK provides -lz.
+          PCRE="$(brew --prefix pcre2)"
+          SSL="$(brew --prefix openssl@3)"
+          ./auto/configure \
+            --prefix="$GITHUB_WORKSPACE/_install" \
+            --with-http_ssl_module \
+            --with-http_v2_module \
+            --with-http_v3_module \
+            --with-stream \
+            --with-cc-opt="-I$PCRE/include -I$SSL/include -Wno-deprecated-declarations" \
+            --with-ld-opt="-L$PCRE/lib -L$SSL/lib" \
+            2>&1 | tee configure.log
+
+      - name: Build
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            JOBS="$(sysctl -n hw.ncpu)"
+          else
+            JOBS="$(nproc)"
+          fi
+          make -j"$JOBS" 2>&1 | tee build.log
+
+      - name: Show build info
+        run: ./objs/nginx -V
+
+      - name: Install and validate shipped config
+        run: |
+          make install
+          "$GITHUB_WORKSPACE/_install/sbin/nginx" -t
+
+      - name: Smoke test
+        run: |
+          PREFIX="$GITHUB_WORKSPACE/_install"
+          cd "$PREFIX"
+
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout conf/smoke.key -out conf/smoke.crt \
+            -days 1 -subj "/CN=localhost" 2>/dev/null
+
+          # Replace the shipped config so the compiled-in prefix defaults
+          # (mime.types, html/, logs/) resolve exactly as in a real install.
+          cat > conf/nginx.conf <<'NGXCONF'
+          worker_processes  1;
+          error_log  logs/error.log info;
+          pid        logs/nginx.pid;
+
+          events {
+              worker_connections  64;
+          }
+
+          http {
+              include       mime.types;
+              default_type  application/octet-stream;
+              access_log    logs/access.log;
+
+              server {
+                  listen       8899;
+                  server_name  localhost;
+                  location / {
+                      root   html;
+                      index  index.html;
+                  }
+              }
+
+              server {
+                  listen               8443 ssl;
+                  http2                on;
+                  server_name          localhost;
+                  ssl_certificate      smoke.crt;
+                  ssl_certificate_key  smoke.key;
+                  location / {
+                      root   html;
+                      index  index.html;
+                  }
+              }
+          }
+          NGXCONF
+
+          # Be explicit about prefix and config path. Without -p/-c nginx falls
+          # back to its compiled-in prefix, which can silently be a different
+          # install than the one we just wrote a config into -- the smoke test
+          # would then pass against the wrong server.
+          nginx_run() {
+            "$PREFIX/sbin/nginx" -p "$PREFIX" -c "$PREFIX/conf/nginx.conf" "$@"
+          }
+
+          nginx_run -t
+          nginx_run
+          echo "started: $(cat logs/nginx.pid 2>/dev/null || echo '<pid file not yet written>')"
+
+          # Give the listeners a moment to bind
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS -o /dev/null http://127.0.0.1:8899/ 2>/dev/null; then break; fi
+            sleep 1
+          done
+
+          echo "--- plain HTTP ---"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/)"
+          echo "status: $code"
+          test "$code" = "200"
+
+          curl -sSI http://127.0.0.1:8899/ | tee /tmp/headers.txt
+          grep -qi '^Server: freenginx/' /tmp/headers.txt
+
+          echo "--- TLS ---"
+          code="$(curl -sSk -o /dev/null -w '%{http_code}' --http2 https://127.0.0.1:8443/)"
+          echo "status: $code"
+          test "$code" = "200"
+
+          # Assert h2 was actually negotiated, but only where the client can
+          if curl -V | grep -q HTTP2; then
+            ver="$(curl -sSk -o /dev/null -w '%{http_version}' --http2 https://127.0.0.1:8443/)"
+            echo "negotiated HTTP version: $ver"
+            test "$ver" = "2"
+          else
+            echo "curl lacks HTTP2 support, skipping h2 negotiation assertion"
+          fi
+
+          nginx_run -s stop
+          echo "smoke test passed"
+
+      - name: Stop nginx
+        if: always()
+        run: |
+          PREFIX="$GITHUB_WORKSPACE/_install"
+          if [ -x "$PREFIX/sbin/nginx" ] && [ -s "$PREFIX/logs/nginx.pid" ]; then
+            "$PREFIX/sbin/nginx" -p "$PREFIX" -c "$PREFIX/conf/nginx.conf" -s stop || true
+          fi
+
+      - name: Dump error log on failure
+        if: failure()
+        run: cat "$GITHUB_WORKSPACE/_install/logs/error.log" || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.os }}
+          path: |
+            configure.log
+            build.log
+            _install/logs/
+          if-no-files-found: ignore
+          retention-days: 7

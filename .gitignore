@@ -1,0 +1,10 @@
+# Build artifacts from ./auto/configure && make.
+#
+# Both are generated in-tree at the repo root. Patterns are anchored with a
+# leading "/" so the tracked makefiles further down the tree (docs/GNUmakefile,
+# src/event/quic/bpf/makefile, auto/lib/*/makefile.*) are not caught.
+#
+# Upstream hg has no .gitignore. This file survives syncs because the sync
+# process is configured to exclude it from its rsync --delete.
+/Makefile
+/objs/
