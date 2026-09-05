@@ -356,8 +356,8 @@ ngx_http_upstream_create_round_robin_peer(ngx_http_request_t *r,
         peer[0].effective_weight = 1;
         peer[0].current_weight = 0;
         peer[0].max_conns = 0;
-        peer[0].max_fails = 1;
-        peer[0].fail_timeout = 10;
+        peer[0].max_fails = 0;
+        peer[0].fail_timeout = 0;
         peers->peer = peer;
 
     } else {
@@ -390,8 +390,8 @@ ngx_http_upstream_create_round_robin_peer(ngx_http_request_t *r,
             peer[i].effective_weight = 1;
             peer[i].current_weight = 0;
             peer[i].max_conns = 0;
-            peer[i].max_fails = 1;
-            peer[i].fail_timeout = 10;
+            peer[i].max_fails = 0;
+            peer[i].fail_timeout = 0;
             *peerp = &peer[i];
             peerp = &peer[i].next;
         }

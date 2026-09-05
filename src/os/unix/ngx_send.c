@@ -33,6 +33,8 @@ ngx_unix_send(ngx_connection_t *c, u_char *buf, size_t size)
     for ( ;; ) {
         n = send(c->fd, buf, size, 0);
 
+        err = ngx_socket_errno;
+
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
                        "send: fd:%d %z of %uz", c->fd, n, size);
 
@@ -45,8 +47,6 @@ ngx_unix_send(ngx_connection_t *c, u_char *buf, size_t size)
 
             return n;
         }
-
-        err = ngx_socket_errno;
 
         if (n == 0) {
             ngx_log_error(NGX_LOG_ALERT, c->log, err, "send() returned zero");

@@ -23,8 +23,6 @@ static ngx_int_t ngx_stream_script_add_capture_code(
 #endif
 static ngx_int_t ngx_stream_script_add_full_name_code(
     ngx_stream_script_compile_t *sc);
-static size_t ngx_stream_script_full_name_len_code(
-    ngx_stream_script_engine_t *e);
 static void ngx_stream_script_full_name_code(ngx_stream_script_engine_t *e);
 
 
@@ -43,12 +41,7 @@ ngx_stream_script_flush_complex_value(ngx_stream_session_t *s,
 
     if (index) {
         while (*index != (ngx_uint_t) -1) {
-
-            if (s->variables[*index].no_cacheable) {
-                s->variables[*index].valid = 0;
-                s->variables[*index].not_found = 0;
-            }
-
+            (void) ngx_stream_get_flushed_variable(s, *index);
             index++;
         }
     }
@@ -92,11 +85,16 @@ ngx_stream_complex_value(ngx_stream_session_t *s,
 
     e.ip = val->values;
     e.pos = value->data;
+    e.end = value->data + len;
     e.buf = *value;
 
     while (*(uintptr_t *) e.ip) {
         code = *(ngx_stream_script_code_pt *) e.ip;
         code((ngx_stream_script_engine_t *) &e);
+    }
+
+    if (e.status) {
+        return NGX_ERROR;
     }
 
     *value = e.buf;
@@ -196,12 +194,10 @@ ngx_stream_compile_complex_value(ngx_stream_compile_complex_value_t *ccv)
         return NGX_ERROR;
     }
 
-    n = (nv * (2 * sizeof(ngx_stream_script_copy_code_t)
-                   + sizeof(ngx_stream_script_var_code_t))
-                + sizeof(uintptr_t)
-                + v->len
-                + sizeof(uintptr_t) - 1)
-            & ~(sizeof(uintptr_t) - 1);
+    n = nv * (2 * sizeof(ngx_stream_script_copy_code_t)
+                  + sizeof(ngx_stream_script_var_code_t))
+        + sizeof(uintptr_t)
+        + ngx_align(v->len, sizeof(uintptr_t));
 
     if (ngx_array_init(&values, ccv->cf->pool, n, 1) != NGX_OK) {
         return NGX_ERROR;
@@ -491,20 +487,9 @@ u_char *
 ngx_stream_script_run(ngx_stream_session_t *s, ngx_str_t *value,
     void *code_lengths, size_t len, void *code_values)
 {
-    ngx_uint_t                      i;
-    ngx_stream_script_code_pt       code;
-    ngx_stream_script_engine_t      e;
-    ngx_stream_core_main_conf_t    *cmcf;
-    ngx_stream_script_len_code_pt   lcode;
-
-    cmcf = ngx_stream_get_module_main_conf(s, ngx_stream_core_module);
-
-    for (i = 0; i < cmcf->variables.nelts; i++) {
-        if (s->variables[i].no_cacheable) {
-            s->variables[i].valid = 0;
-            s->variables[i].not_found = 0;
-        }
-    }
+    ngx_stream_script_code_pt      code;
+    ngx_stream_script_engine_t     e;
+    ngx_stream_script_len_code_pt  lcode;
 
     ngx_memzero(&e, sizeof(ngx_stream_script_engine_t));
 
@@ -514,9 +499,16 @@ ngx_stream_script_run(ngx_stream_session_t *s, ngx_str_t *value,
 
     while (*(uintptr_t *) e.ip) {
         lcode = *(ngx_stream_script_len_code_pt *) e.ip;
-        len += lcode(&e);
+        (void) lcode(&e);
     }
 
+    e.ip = code_lengths;
+    e.flushed = 1;
+
+    while (*(uintptr_t *) e.ip) {
+        lcode = *(ngx_stream_script_len_code_pt *) e.ip;
+        len += lcode(&e);
+    }
 
     value->len = len;
     value->data = ngx_pnalloc(s->connection->pool, len);
@@ -526,10 +518,15 @@ ngx_stream_script_run(ngx_stream_session_t *s, ngx_str_t *value,
 
     e.ip = code_values;
     e.pos = value->data;
+    e.end = value->data + len;
 
     while (*(uintptr_t *) e.ip) {
         code = *(ngx_stream_script_code_pt *) e.ip;
         code((ngx_stream_script_engine_t *) &e);
+    }
+
+    if (e.status) {
+        return NULL;
     }
 
     return e.pos;
@@ -545,10 +542,7 @@ ngx_stream_script_flush_no_cacheable_variables(ngx_stream_session_t *s,
     if (indices) {
         index = indices->elts;
         for (n = 0; n < indices->nelts; n++) {
-            if (s->variables[index[n]].no_cacheable) {
-                s->variables[index[n]].valid = 0;
-                s->variables[index[n]].not_found = 0;
-            }
+            (void) ngx_stream_get_flushed_variable(s, index[n]);
         }
     }
 }
@@ -579,12 +573,10 @@ ngx_stream_script_init_arrays(ngx_stream_script_compile_t *sc)
     }
 
     if (*sc->values == NULL) {
-        n = (sc->variables * (2 * sizeof(ngx_stream_script_copy_code_t)
-                              + sizeof(ngx_stream_script_var_code_t))
-                + sizeof(uintptr_t)
-                + sc->source->len
-                + sizeof(uintptr_t) - 1)
-            & ~(sizeof(uintptr_t) - 1);
+        n = sc->variables * (2 * sizeof(ngx_stream_script_copy_code_t)
+                             + sizeof(ngx_stream_script_var_code_t))
+            + sizeof(uintptr_t)
+            + ngx_align(sc->source->len, sizeof(uintptr_t));
 
         *sc->values = ngx_array_create(sc->cf->pool, n, 1);
         if (*sc->values == NULL) {
@@ -668,6 +660,25 @@ ngx_stream_script_add_code(ngx_array_t *codes, size_t size, void *code)
 }
 
 
+ngx_int_t
+ngx_stream_script_check_length(ngx_stream_script_engine_t *e, size_t len)
+{
+    if (e->end == NULL) {
+        return NGX_OK;
+    }
+
+    if (e->end - e->pos < (ssize_t) len) {
+        ngx_log_error(NGX_LOG_ALERT, e->session->connection->log, 0,
+                      "no buffer space in script copy");
+        e->ip = ngx_stream_script_exit;
+        e->status = NGX_STREAM_INTERNAL_SERVER_ERROR;
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
 static ngx_int_t
 ngx_stream_script_add_copy_code(ngx_stream_script_compile_t *sc,
     ngx_str_t *value, ngx_uint_t last)
@@ -690,8 +701,8 @@ ngx_stream_script_add_copy_code(ngx_stream_script_compile_t *sc,
                                                ngx_stream_script_copy_len_code;
     code->len = len;
 
-    size = (sizeof(ngx_stream_script_copy_code_t) + len + sizeof(uintptr_t) - 1)
-            & ~(sizeof(uintptr_t) - 1);
+    size = sizeof(ngx_stream_script_copy_code_t)
+           + ngx_align(len, sizeof(uintptr_t));
 
     code = ngx_stream_script_add_code(*sc->values, size, &sc->main);
     if (code == NULL) {
@@ -737,12 +748,17 @@ ngx_stream_script_copy_code(ngx_stream_script_engine_t *e)
     p = e->pos;
 
     if (!e->skip) {
+
+        if (ngx_stream_script_check_length(e, code->len) != NGX_OK) {
+            return;
+        }
+
         e->pos = ngx_copy(p, e->ip + sizeof(ngx_stream_script_copy_code_t),
                           code->len);
     }
 
     e->ip += sizeof(ngx_stream_script_copy_code_t)
-          + ((code->len + sizeof(uintptr_t) - 1) & ~(sizeof(uintptr_t) - 1));
+          + ngx_align(code->len, sizeof(uintptr_t));
 
     ngx_log_debug2(NGX_LOG_DEBUG_STREAM, e->session->connection->log, 0,
                    "stream script copy: \"%*s\"", e->pos - p, p);
@@ -841,6 +857,11 @@ ngx_stream_script_copy_var_code(ngx_stream_script_engine_t *e)
         }
 
         if (value && !value->not_found) {
+
+            if (ngx_stream_script_check_length(e, value->len) != NGX_OK) {
+                return;
+            }
+
             p = e->pos;
             e->pos = ngx_copy(p, value->data, value->len);
 
@@ -894,6 +915,7 @@ size_t
 ngx_stream_script_copy_capture_len_code(ngx_stream_script_engine_t *e)
 {
     int                                    *cap;
+    size_t                                  len;
     ngx_uint_t                              n;
     ngx_stream_session_t                   *s;
     ngx_stream_script_copy_capture_code_t  *code;
@@ -908,7 +930,8 @@ ngx_stream_script_copy_capture_len_code(ngx_stream_script_engine_t *e)
 
     if (n < s->ncaptures) {
         cap = s->captures;
-        return cap[n + 1] - cap[n];
+        len = cap[n + 1] - cap[n];
+        return len;
     }
 
     return 0;
@@ -920,6 +943,7 @@ ngx_stream_script_copy_capture_code(ngx_stream_script_engine_t *e)
 {
     int                                    *cap;
     u_char                                 *p, *pos;
+    size_t                                  len;
     ngx_uint_t                              n;
     ngx_stream_session_t                   *s;
     ngx_stream_script_copy_capture_code_t  *code;
@@ -936,8 +960,14 @@ ngx_stream_script_copy_capture_code(ngx_stream_script_engine_t *e)
 
     if (n < s->ncaptures) {
         cap = s->captures;
-        p = s->captures_data;
-        e->pos = ngx_copy(pos, &p[cap[n]], cap[n + 1] - cap[n]);
+        len = cap[n + 1] - cap[n];
+        p = s->captures_data + cap[n];
+
+        if (ngx_stream_script_check_length(e, len) != NGX_OK) {
+            return;
+        }
+
+        e->pos = ngx_copy(pos, p, len);
     }
 
     ngx_log_debug2(NGX_LOG_DEBUG_STREAM, e->session->connection->log, 0,
@@ -952,17 +982,6 @@ ngx_stream_script_add_full_name_code(ngx_stream_script_compile_t *sc)
 {
     ngx_stream_script_full_name_code_t  *code;
 
-    code = ngx_stream_script_add_code(*sc->lengths,
-                                    sizeof(ngx_stream_script_full_name_code_t),
-                                    NULL);
-    if (code == NULL) {
-        return NGX_ERROR;
-    }
-
-    code->code = (ngx_stream_script_code_pt) (uintptr_t)
-                                          ngx_stream_script_full_name_len_code;
-    code->conf_prefix = sc->conf_prefix;
-
     code = ngx_stream_script_add_code(*sc->values,
                         sizeof(ngx_stream_script_full_name_code_t), &sc->main);
     if (code == NULL) {
@@ -973,20 +992,6 @@ ngx_stream_script_add_full_name_code(ngx_stream_script_compile_t *sc)
     code->conf_prefix = sc->conf_prefix;
 
     return NGX_OK;
-}
-
-
-static size_t
-ngx_stream_script_full_name_len_code(ngx_stream_script_engine_t *e)
-{
-    ngx_stream_script_full_name_code_t  *code;
-
-    code = (ngx_stream_script_full_name_code_t *) e->ip;
-
-    e->ip += sizeof(ngx_stream_script_full_name_code_t);
-
-    return code->conf_prefix ? ngx_cycle->conf_prefix.len:
-                               ngx_cycle->prefix.len;
 }
 
 

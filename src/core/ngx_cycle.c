@@ -42,8 +42,9 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 {
     void                *rv;
     char               **senv;
-    ngx_uint_t           i, n;
+    ngx_err_t            err;
     ngx_log_t           *log;
+    ngx_uint_t           i, n;
     ngx_time_t          *tp;
     ngx_conf_t           conf;
     ngx_pool_t          *pool;
@@ -387,12 +388,14 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                                    NGX_FILE_CREATE_OR_OPEN,
                                    NGX_FILE_DEFAULT_ACCESS);
 
+        err = ngx_errno;
+
         ngx_log_debug3(NGX_LOG_DEBUG_CORE, log, 0,
                        "log: %p %d \"%s\"",
                        &file[i], file[i].fd, file[i].name.data);
 
         if (file[i].fd == NGX_INVALID_FILE) {
-            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
+            ngx_log_error(NGX_LOG_EMERG, log, err,
                           ngx_open_file_n " \"%s\" failed",
                           file[i].name.data);
             goto failed;
@@ -1238,6 +1241,7 @@ void
 ngx_reopen_files(ngx_cycle_t *cycle, ngx_uid_t user)
 {
     ngx_fd_t          fd;
+    ngx_err_t         err;
     ngx_uint_t        i;
     ngx_list_part_t  *part;
     ngx_open_file_t  *file;
@@ -1267,12 +1271,14 @@ ngx_reopen_files(ngx_cycle_t *cycle, ngx_uid_t user)
         fd = ngx_open_file(file[i].name.data, NGX_FILE_APPEND,
                            NGX_FILE_CREATE_OR_OPEN, NGX_FILE_DEFAULT_ACCESS);
 
+        err = ngx_errno;
+
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "reopen file \"%s\", old:%d new:%d",
                        file[i].name.data, file[i].fd, fd);
 
         if (fd == NGX_INVALID_FILE) {
-            ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+            ngx_log_error(NGX_LOG_EMERG, cycle->log, err,
                           ngx_open_file_n " \"%s\" failed", file[i].name.data);
             continue;
         }

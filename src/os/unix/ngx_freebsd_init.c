@@ -109,10 +109,12 @@ ngx_os_specific_init(ngx_log_t *log)
     size = sizeof(ngx_freebsd_kern_ostype);
     if (sysctlbyname("kern.ostype",
                      ngx_freebsd_kern_ostype, &size, NULL, 0) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, log, ngx_errno,
+        err = ngx_errno;
+
+        ngx_log_error(NGX_LOG_ALERT, log, err,
                       "sysctlbyname(kern.ostype) failed");
 
-        if (ngx_errno != NGX_ENOMEM) {
+        if (err != NGX_ENOMEM) {
             return NGX_ERROR;
         }
 
@@ -122,10 +124,12 @@ ngx_os_specific_init(ngx_log_t *log)
     size = sizeof(ngx_freebsd_kern_osrelease);
     if (sysctlbyname("kern.osrelease",
                      ngx_freebsd_kern_osrelease, &size, NULL, 0) == -1) {
-        ngx_log_error(NGX_LOG_ALERT, log, ngx_errno,
+        err = ngx_errno;
+
+        ngx_log_error(NGX_LOG_ALERT, log, err,
                       "sysctlbyname(kern.osrelease) failed");
 
-        if (ngx_errno != NGX_ENOMEM) {
+        if (err != NGX_ENOMEM) {
             return NGX_ERROR;
         }
 

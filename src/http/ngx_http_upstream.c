@@ -52,6 +52,8 @@ static ngx_int_t ngx_http_upstream_send_request_body(ngx_http_request_t *r,
 static void ngx_http_upstream_send_request_handler(ngx_http_request_t *r,
     ngx_http_upstream_t *u);
 static void ngx_http_upstream_read_request_handler(ngx_http_request_t *r);
+static void ngx_http_upstream_block_reading(ngx_http_request_t *r,
+    ngx_http_upstream_t *u);
 static void ngx_http_upstream_process_header(ngx_http_request_t *r,
     ngx_http_upstream_t *u);
 static ngx_int_t ngx_http_upstream_test_next(ngx_http_request_t *r,
@@ -1595,7 +1597,7 @@ ngx_http_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
     c->read->handler = ngx_http_upstream_handler;
 
     u->write_event_handler = ngx_http_upstream_send_request_handler;
-    u->read_event_handler = ngx_http_upstream_process_header;
+    u->read_event_handler = ngx_http_upstream_block_reading;
 
     c->sendfile &= r->connection->sendfile;
     u->output.sendfile = c->sendfile;
@@ -2138,6 +2140,10 @@ ngx_http_upstream_send_request(ngx_http_request_t *r, ngx_http_upstream_t *u,
         return;
     }
 
+    if (!u->request_sent) {
+        u->read_event_handler = ngx_http_upstream_process_header;
+    }
+
     sent = c->sent;
 
     if (!u->request_sent) {
@@ -2419,6 +2425,24 @@ ngx_http_upstream_read_request_handler(ngx_http_request_t *r)
 
 
 static void
+ngx_http_upstream_block_reading(ngx_http_request_t *r, ngx_http_upstream_t *u)
+{
+    ngx_connection_t  *c;
+
+    c = u->peer.connection;
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0,
+                   "http upstream block reading");
+
+    if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+        ngx_http_upstream_finalize_request(r, u,
+                                           NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+}
+
+
+static void
 ngx_http_upstream_process_header(ngx_http_request_t *r, ngx_http_upstream_t *u)
 {
     ssize_t            n;
@@ -2434,11 +2458,6 @@ ngx_http_upstream_process_header(ngx_http_request_t *r, ngx_http_upstream_t *u)
 
     if (c->read->timedout) {
         ngx_http_upstream_next(r, u, NGX_HTTP_UPSTREAM_FT_TIMEOUT);
-        return;
-    }
-
-    if (!u->request_sent && ngx_http_upstream_test_connect(c) != NGX_OK) {
-        ngx_http_upstream_next(r, u, NGX_HTTP_UPSTREAM_FT_ERROR);
         return;
     }
 
@@ -2584,30 +2603,51 @@ ngx_http_upstream_test_next(ngx_http_request_t *r, ngx_http_upstream_t *u)
             continue;
         }
 
-        timeout = u->conf->next_upstream_timeout;
+        if (u->conf->next_upstream & un->mask) {
 
-        if (u->request_sent
-            && (r->method & (NGX_HTTP_POST|NGX_HTTP_LOCK|NGX_HTTP_PATCH)))
-        {
-            mask = un->mask | NGX_HTTP_UPSTREAM_FT_NON_IDEMPOTENT;
+            timeout = u->conf->next_upstream_timeout;
 
-        } else {
-            mask = un->mask;
-        }
+            if (u->request_sent
+                && (r->method & (NGX_HTTP_POST|NGX_HTTP_LOCK|NGX_HTTP_PATCH)))
+            {
+                mask = un->mask | NGX_HTTP_UPSTREAM_FT_NON_IDEMPOTENT;
 
-        if (u->peer.tries > 1
-            && ((u->conf->next_upstream & mask) == mask)
-            && !(u->request_sent && r->request_body_no_buffering)
-            && !(timeout && ngx_current_msec - u->peer.start_time >= timeout))
-        {
-            ngx_http_upstream_next(r, u, un->mask);
-            return NGX_OK;
+            } else {
+                mask = un->mask;
+            }
+
+            if (u->peer.tries > 1
+                && ((u->conf->next_upstream & mask) == mask)
+                && !(u->request_sent && r->request_body_no_buffering)
+                && !(timeout
+                     && ngx_current_msec - u->peer.start_time >= timeout))
+            {
+                ngx_http_upstream_next(r, u, un->mask);
+                return NGX_OK;
+            }
+
+            /*
+             * if we were expected to switch to the next server, but
+             * were not able to do so due to additional restrictions,
+             * remember that the peer failed
+             */
+
+            if (un->mask == NGX_HTTP_UPSTREAM_FT_HTTP_403
+                || un->mask == NGX_HTTP_UPSTREAM_FT_HTTP_404)
+            {
+                u->peer_state = NGX_PEER_NEXT;
+
+            } else {
+                u->peer_state = NGX_PEER_FAILED;
+            }
         }
 
 #if (NGX_HTTP_CACHE)
 
         if (u->cache_status == NGX_HTTP_CACHE_EXPIRED
-            && (u->conf->cache_use_stale & un->mask))
+            && ((u->conf->cache_use_stale & un->mask)
+                || ((u->peer_state & NGX_PEER_FAILED)
+                    && r->cache->stale_error)))
         {
             ngx_int_t  rc;
 
@@ -3196,6 +3236,7 @@ ngx_http_upstream_send_response(ngx_http_request_t *r, ngx_http_upstream_t *u)
 
     if (ngx_http_upstream_no_cache(r, u) != NGX_OK) {
         ngx_http_upstream_finalize_request(r, u, NGX_ERROR);
+        return;
     }
 
     if (u->cacheable) {
@@ -3793,7 +3834,9 @@ ngx_http_upstream_process_non_buffered_request(ngx_http_request_t *r,
 
         if (do_write) {
 
-            if (u->out_bufs || u->busy_bufs || downstream->buffered) {
+            if (u->out_bufs || u->busy_bufs || downstream->buffered
+                || r->postponed)
+            {
                 rc = ngx_http_output_filter(r, u->out_bufs);
 
                 if (rc == NGX_ERROR) {
@@ -4192,6 +4235,11 @@ ngx_http_upstream_process_upstream(ngx_http_request_t *r,
 
         p->upstream_error = 1;
         ngx_connection_error(c, NGX_ETIMEDOUT, "upstream timed out");
+
+        if (ngx_event_pipe(p, 1) == NGX_ABORT) {
+            ngx_http_upstream_finalize_request(r, u, NGX_ERROR);
+            return;
+        }
 
     } else {
 
@@ -4623,7 +4671,7 @@ ngx_http_upstream_finalize_request(ngx_http_request_t *r,
     u->finalize_request(r, rc);
 
     if (u->peer.free && u->peer.sockaddr) {
-        u->peer.free(&u->peer, u->peer.data, 0);
+        u->peer.free(&u->peer, u->peer.data, u->peer_state);
         u->peer.sockaddr = NULL;
     }
 

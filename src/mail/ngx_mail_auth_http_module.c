@@ -31,7 +31,7 @@ typedef struct {
 
 typedef struct ngx_mail_auth_http_ctx_s  ngx_mail_auth_http_ctx_t;
 
-typedef void (*ngx_mail_auth_http_handler_pt)(ngx_mail_session_t *s,
+typedef ngx_int_t (*ngx_mail_auth_http_handler_pt)(ngx_mail_session_t *s,
     ngx_mail_auth_http_ctx_t *ctx);
 
 struct ngx_mail_auth_http_ctx_s {
@@ -65,9 +65,9 @@ struct ngx_mail_auth_http_ctx_s {
 
 static void ngx_mail_auth_http_write_handler(ngx_event_t *wev);
 static void ngx_mail_auth_http_read_handler(ngx_event_t *rev);
-static void ngx_mail_auth_http_ignore_status_line(ngx_mail_session_t *s,
+static ngx_int_t ngx_mail_auth_http_ignore_status_line(ngx_mail_session_t *s,
     ngx_mail_auth_http_ctx_t *ctx);
-static void ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
+static ngx_int_t ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
     ngx_mail_auth_http_ctx_t *ctx);
 static void ngx_mail_auth_sleep_handler(ngx_event_t *rev);
 static void ngx_mail_auth_send_error(ngx_mail_session_t *s);
@@ -307,13 +307,20 @@ ngx_mail_auth_http_write_handler(ngx_event_t *wev)
         ahcf = ngx_mail_get_module_srv_conf(s, ngx_mail_auth_http_module);
         ngx_add_timer(wev, ahcf->timeout);
     }
+
+    if (ngx_handle_write_event(wev, 0) != NGX_OK) {
+        ngx_close_connection(c);
+        ngx_destroy_pool(ctx->pool);
+        ngx_mail_session_internal_server_error(s);
+    }
 }
 
 
 static void
 ngx_mail_auth_http_read_handler(ngx_event_t *rev)
 {
-    ssize_t                     n, size;
+    ssize_t                    n, size;
+    ngx_int_t                  rc;
     ngx_connection_t          *c;
     ngx_mail_session_t        *s;
     ngx_mail_auth_http_ctx_t  *ctx;
@@ -345,19 +352,41 @@ ngx_mail_auth_http_read_handler(ngx_event_t *rev)
         }
     }
 
-    size = ctx->response->end - ctx->response->last;
+    for ( ;; ) {
 
-    n = ngx_recv(c, ctx->response->pos, size);
+        size = ctx->response->end - ctx->response->last;
 
-    if (n > 0) {
-        ctx->response->last += n;
+        n = ngx_recv(c, ctx->response->pos, size);
 
-        ctx->handler(s, ctx);
-        return;
+        if (n > 0) {
+            ctx->response->last += n;
+
+            rc = ctx->handler(s, ctx);
+
+            if (rc == NGX_ERROR || rc == NGX_DONE) {
+                return;
+            }
+
+            continue;
+        }
+
+        if (n == NGX_AGAIN) {
+            if (ngx_handle_read_event(rev, 0) != NGX_OK) {
+                ngx_close_connection(c);
+                ngx_destroy_pool(ctx->pool);
+                ngx_mail_session_internal_server_error(s);
+            }
+
+            return;
+        }
+
+        break;
     }
 
-    if (n == NGX_AGAIN) {
-        return;
+    if (n == 0) {
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                      "auth http server %V prematurely closed connection",
+                      ctx->peer.name);
     }
 
     ngx_close_connection(c);
@@ -366,7 +395,7 @@ ngx_mail_auth_http_read_handler(ngx_event_t *rev)
 }
 
 
-static void
+static ngx_int_t
 ngx_mail_auth_http_ignore_status_line(ngx_mail_session_t *s,
     ngx_mail_auth_http_ctx_t *ctx)
 {
@@ -448,17 +477,19 @@ ngx_mail_auth_http_ignore_status_line(ngx_mail_session_t *s,
             ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                           "auth http server %V sent invalid response",
                           ctx->peer.name);
+
             ngx_close_connection(ctx->peer.connection);
             ngx_destroy_pool(ctx->pool);
             ngx_mail_session_internal_server_error(s);
-            return;
+
+            return NGX_ERROR;
         }
     }
 
     ctx->response->pos = p;
     ctx->state = state;
 
-    return;
+    return NGX_AGAIN;
 
 next:
 
@@ -469,11 +500,11 @@ done:
     ctx->response->pos = p + 1;
     ctx->state = 0;
     ctx->handler = ngx_mail_auth_http_process_headers;
-    ctx->handler(s, ctx);
+    return ctx->handler(s, ctx);
 }
 
 
-static void
+static ngx_int_t
 ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
     ngx_mail_auth_http_ctx_t *ctx)
 {
@@ -499,7 +530,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                 ngx_close_connection(ctx->peer.connection);
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             h->key.len = ctx->header_name_end - ctx->header_name_start;
@@ -562,7 +593,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     ngx_close_connection(ctx->peer.connection);
                     ngx_destroy_pool(ctx->pool);
                     ngx_mail_session_internal_server_error(s);
-                    return;
+                    return NGX_ERROR;
                 }
 
                 ctx->err.data = p;
@@ -627,7 +658,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     ngx_close_connection(ctx->peer.connection);
                     ngx_destroy_pool(ctx->pool);
                     ngx_mail_session_internal_server_error(s);
-                    return;
+                    return NGX_ERROR;
                 }
 
                 ngx_memcpy(s->login.data, ctx->header_start, s->login.len);
@@ -649,7 +680,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     ngx_close_connection(ctx->peer.connection);
                     ngx_destroy_pool(ctx->pool);
                     ngx_mail_session_internal_server_error(s);
-                    return;
+                    return NGX_ERROR;
                 }
 
                 ngx_memcpy(s->passwd.data, ctx->header_start, s->passwd.len);
@@ -687,7 +718,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     ngx_close_connection(ctx->peer.connection);
                     ngx_destroy_pool(ctx->pool);
                     ngx_mail_session_internal_server_error(s);
-                    return;
+                    return NGX_ERROR;
                 }
 
                 ngx_memcpy(ctx->errcode.data, ctx->header_start,
@@ -722,7 +753,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     ngx_close_connection(ctx->peer.connection);
                     ngx_destroy_pool(ctx->pool);
                     ngx_mail_session_internal_server_error(s);
-                    return;
+                    return NGX_ERROR;
                 }
 
                 ctx->errsasl.len = size;
@@ -770,7 +801,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                     if (p == NULL) {
                         ngx_destroy_pool(ctx->pool);
                         ngx_mail_session_internal_server_error(s);
-                        return;
+                        return NGX_ERROR;
                     }
 
                     ctx->err.data = p;
@@ -790,14 +821,14 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                 if (timer == 0) {
                     s->auth_quit = 1;
                     ngx_mail_auth_send_error(s);
-                    return;
+                    return NGX_DONE;
                 }
 
                 ngx_add_timer(s->connection->read, (ngx_msec_t) (timer * 1000));
 
                 s->connection->read->handler = ngx_mail_auth_sleep_handler;
 
-                return;
+                return NGX_DONE;
             }
 
             if (s->auth_wait) {
@@ -807,14 +838,14 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
 
                 if (timer == 0) {
                     ngx_mail_auth_http_init(s);
-                    return;
+                    return NGX_DONE;
                 }
 
                 ngx_add_timer(s->connection->read, (ngx_msec_t) (timer * 1000));
 
                 s->connection->read->handler = ngx_mail_auth_sleep_handler;
 
-                return;
+                return NGX_DONE;
             }
 
             if (ctx->addr.len == 0 || ctx->port.len == 0) {
@@ -823,7 +854,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                               ctx->peer.name);
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             if (s->passwd.data == NULL
@@ -834,14 +865,14 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                               ctx->peer.name);
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             peer = ngx_pcalloc(s->connection->pool, sizeof(ngx_addr_t));
             if (peer == NULL) {
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             rc = ngx_parse_addr(s->connection->pool, peer,
@@ -861,7 +892,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
             default:
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             port = ngx_atoi(ctx->port.data, ctx->port.len);
@@ -872,7 +903,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
                               ctx->peer.name, &ctx->port);
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             ngx_inet_set_port(peer->sockaddr, (in_port_t) port);
@@ -885,7 +916,7 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
             if (peer->name.data == NULL) {
                 ngx_destroy_pool(ctx->pool);
                 ngx_mail_session_internal_server_error(s);
-                return;
+                return NGX_ERROR;
             }
 
             len = ctx->addr.len;
@@ -900,17 +931,17 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
 
             if (ngx_mail_limit_conn_handler(s) != NGX_OK) {
                 ngx_destroy_pool(ctx->pool);
-                return;
+                return NGX_ERROR;
             }
 
             ngx_destroy_pool(ctx->pool);
             ngx_mail_proxy_init(s, peer);
 
-            return;
+            return NGX_DONE;
         }
 
         if (rc == NGX_AGAIN ) {
-            return;
+            return NGX_AGAIN;
         }
 
         /* rc == NGX_ERROR */
@@ -918,12 +949,15 @@ ngx_mail_auth_http_process_headers(ngx_mail_session_t *s,
         ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                       "auth http server %V sent invalid header in response",
                       ctx->peer.name);
+
         ngx_close_connection(ctx->peer.connection);
         ngx_destroy_pool(ctx->pool);
         ngx_mail_session_internal_server_error(s);
 
-        return;
+        return NGX_ERROR;
     }
+
+    /* not reached */
 }
 
 
@@ -1233,7 +1267,7 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
 {
     size_t                     len;
     ngx_buf_t                 *b;
-    ngx_str_t                  login, passwd;
+    ngx_str_t                  login, passwd, host;
     ngx_connection_t          *c;
 #if (NGX_MAIL_SSL)
     ngx_str_t                  protocol, cipher, verify, subject, issuer,
@@ -1248,6 +1282,10 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
     }
 
     if (ngx_mail_auth_http_escape(pool, &s->passwd, &passwd) != NGX_OK) {
+        return NULL;
+    }
+
+    if (ngx_mail_auth_http_escape(pool, &s->host, &host) != NGX_OK) {
         return NULL;
     }
 
@@ -1348,7 +1386,7 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
                 + sizeof(CRLF) - 1
           + sizeof("Client-IP: ") - 1 + s->connection->addr_text.len
                 + sizeof(CRLF) - 1
-          + sizeof("Client-Host: ") - 1 + s->host.len + sizeof(CRLF) - 1
+          + sizeof("Client-Host: ") - 1 + host.len + sizeof(CRLF) - 1
           + ahcf->header.len
           + sizeof(CRLF) - 1;
 
@@ -1449,10 +1487,10 @@ ngx_mail_auth_http_create_request(ngx_mail_session_t *s, ngx_pool_t *pool,
                        s->connection->addr_text.len);
     *b->last++ = CR; *b->last++ = LF;
 
-    if (s->host.len) {
+    if (host.len) {
         b->last = ngx_cpymem(b->last, "Client-Host: ",
                              sizeof("Client-Host: ") - 1);
-        b->last = ngx_copy(b->last, s->host.data, s->host.len);
+        b->last = ngx_copy(b->last, host.data, host.len);
         *b->last++ = CR; *b->last++ = LF;
     }
 

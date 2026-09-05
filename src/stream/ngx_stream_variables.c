@@ -177,6 +177,12 @@ ngx_stream_add_variable(ngx_conf_t *cf, ngx_str_t *name, ngx_uint_t flags)
             return NULL;
         }
 
+        if (!(flags & NGX_STREAM_VAR_WEAK) && v->set_handler) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "the duplicate \"%V\" variable", name);
+            return NULL;
+        }
+
         if (!(flags & NGX_STREAM_VAR_WEAK)) {
             v->flags &= ~NGX_STREAM_VAR_WEAK;
         }
@@ -474,6 +480,43 @@ ngx_stream_get_variable(ngx_stream_session_t *s, ngx_str_t *name,
     vv->not_found = 1;
 
     return vv;
+}
+
+
+void
+ngx_stream_set_indexed_variable(ngx_stream_session_t *s, ngx_uint_t index,
+    ngx_stream_variable_value_t *value)
+{
+    ngx_stream_variable_t        *v;
+    ngx_stream_variable_value_t  *vv;
+    ngx_stream_core_main_conf_t  *cmcf;
+
+    cmcf = ngx_stream_get_module_main_conf(s, ngx_stream_core_module);
+
+    if (cmcf->variables.nelts <= index) {
+        ngx_log_error(NGX_LOG_ALERT, s->connection->log, 0,
+                      "unknown variable index: %ui", index);
+        return;
+    }
+
+    v = cmcf->variables.elts;
+
+    if (v[index].set_handler) {
+        v[index].set_handler(s, value, v[index].data);
+
+    } else {
+        vv = &s->variables[index];
+
+        vv->len = value->len;
+        vv->valid = 1;
+        vv->no_cacheable = 0;
+        vv->not_found = 0;
+        vv->escape = 0;
+        vv->data = value->data;
+    }
+
+    ngx_log_debug2(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
+                   "stream set $%V to \"%v\"", &v[index].name, value);
 }
 
 
@@ -1072,7 +1115,8 @@ ngx_stream_regex_compile(ngx_conf_t *cf, ngx_regex_compile_t *rc)
         name.data = &p[2];
         name.len = ngx_strlen(name.data);
 
-        v = ngx_stream_add_variable(cf, &name, NGX_STREAM_VAR_CHANGEABLE);
+        v = ngx_stream_add_variable(cf, &name,
+                                NGX_STREAM_VAR_CHANGEABLE|NGX_STREAM_VAR_WEAK);
         if (v == NULL) {
             return NULL;
         }
@@ -1082,7 +1126,9 @@ ngx_stream_regex_compile(ngx_conf_t *cf, ngx_regex_compile_t *rc)
             return NULL;
         }
 
-        v->get_handler = ngx_stream_variable_not_found;
+        if (v->get_handler == NULL) {
+            v->get_handler = ngx_stream_variable_not_found;
+        }
 
         p += size;
     }
@@ -1097,7 +1143,7 @@ ngx_stream_regex_exec(ngx_stream_session_t *s, ngx_stream_regex_t *re,
 {
     ngx_int_t                     rc, index;
     ngx_uint_t                    i, n, len;
-    ngx_stream_variable_value_t  *vv;
+    ngx_stream_variable_value_t   vv;
     ngx_stream_core_main_conf_t  *cmcf;
 
     cmcf = ngx_stream_get_module_main_conf(s, ngx_stream_core_module);
@@ -1133,24 +1179,11 @@ ngx_stream_regex_exec(ngx_stream_session_t *s, ngx_stream_regex_t *re,
 
         n = re->variables[i].capture;
         index = re->variables[i].index;
-        vv = &s->variables[index];
 
-        vv->len = s->captures[n + 1] - s->captures[n];
-        vv->valid = 1;
-        vv->no_cacheable = 0;
-        vv->not_found = 0;
-        vv->data = &str->data[s->captures[n]];
+        vv.len = s->captures[n + 1] - s->captures[n];
+        vv.data = &str->data[s->captures[n]];
 
-#if (NGX_DEBUG)
-        {
-        ngx_stream_variable_t  *v;
-
-        v = cmcf->variables.elts;
-
-        ngx_log_debug2(NGX_LOG_DEBUG_STREAM, s->connection->log, 0,
-                       "stream regex set $%V to \"%v\"", &v[index].name, vv);
-        }
-#endif
+        ngx_stream_set_indexed_variable(s, index, &vv);
     }
 
     s->ncaptures = rc * 2;
@@ -1233,6 +1266,7 @@ ngx_stream_variables_init_vars(ngx_conf_t *cf)
                 && ngx_strncmp(v[i].name.data, key[n].key.data, v[i].name.len)
                    == 0)
             {
+                v[i].set_handler = av->set_handler;
                 v[i].get_handler = av->get_handler;
                 v[i].data = av->data;
 
@@ -1265,6 +1299,7 @@ ngx_stream_variables_init_vars(ngx_conf_t *cf)
         }
 
         if (av) {
+            v[i].set_handler = av->set_handler;
             v[i].get_handler = av->get_handler;
             v[i].data = (uintptr_t) &v[i].name;
             v[i].flags = av->flags;

@@ -73,11 +73,11 @@ ngx_shm_alloc(ngx_shm_t *shm)
         return NGX_ERROR;
     }
 
-    ngx_free(name);
-
     if (ngx_errno == ERROR_ALREADY_EXISTS) {
         shm->exists = 1;
     }
+
+    ngx_free(name);
 
     shm->addr = MapViewOfFileEx(shm->handle, FILE_MAP_WRITE, 0, 0, 0, base);
 

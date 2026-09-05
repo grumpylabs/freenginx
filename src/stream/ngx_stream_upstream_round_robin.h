@@ -48,9 +48,6 @@ struct ngx_stream_upstream_rr_peer_s {
 #endif
 
     ngx_stream_upstream_rr_peer_t   *next;
-
-    NGX_COMPAT_BEGIN(25)
-    NGX_COMPAT_END
 };
 
 

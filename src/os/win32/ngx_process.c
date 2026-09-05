@@ -23,6 +23,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, char *name, ngx_int_t respawn)
     u_long          rc, n, code;
     ngx_int_t       s;
     ngx_pid_t       pid;
+    ngx_err_t       err;
     ngx_exec_ctx_t  ctx;
     HANDLE          events[2];
     char            file[MAX_PATH + 1];
@@ -85,6 +86,8 @@ ngx_spawn_process(ngx_cycle_t *cycle, char *name, ngx_int_t respawn)
     events[1] = ctx.child;
 
     rc = WaitForMultipleObjects(2, events, 0, 5000);
+
+    err = ngx_errno;
 
     ngx_time_update();
 
@@ -150,7 +153,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, char *name, ngx_int_t respawn)
         goto failed;
 
     case WAIT_FAILED:
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, err,
                       "WaitForSingleObject(\"%s\") failed",
                       ngx_master_process_event_name);
 

@@ -17,6 +17,7 @@
 typedef struct {
     u_char                     *ip;
     u_char                     *pos;
+    u_char                     *end;
     ngx_http_variable_value_t  *sp;
 
     ngx_str_t                   buf;
@@ -46,7 +47,6 @@ typedef struct {
 
     ngx_uint_t                  variables;
     ngx_uint_t                  ncaptures;
-    ngx_uint_t                  captures_mask;
     ngx_uint_t                  size;
 
     void                       *main;
@@ -58,7 +58,6 @@ typedef struct {
     unsigned                    conf_prefix:1;
     unsigned                    root_prefix:1;
 
-    unsigned                    dup_capture:1;
     unsigned                    args:1;
 } ngx_http_script_compile_t;
 
@@ -104,13 +103,6 @@ typedef struct {
 
 typedef struct {
     ngx_http_script_code_pt     code;
-    ngx_http_set_variable_pt    handler;
-    uintptr_t                   data;
-} ngx_http_script_var_handler_code_t;
-
-
-typedef struct {
-    ngx_http_script_code_pt     code;
     uintptr_t                   n;
 } ngx_http_script_copy_capture_code_t;
 
@@ -120,6 +112,7 @@ typedef struct {
 typedef struct {
     ngx_http_script_code_pt     code;
     ngx_http_regex_t           *regex;
+    ngx_array_t                *flushes;
     ngx_array_t                *lengths;
     uintptr_t                   size;
     uintptr_t                   status;
@@ -195,6 +188,7 @@ typedef struct {
 
 typedef struct {
     ngx_http_script_code_pt     code;
+    ngx_array_t                *flushes;
     ngx_array_t                *lengths;
 } ngx_http_script_complex_value_code_t;
 
@@ -240,6 +234,9 @@ void *ngx_http_script_start_code(ngx_pool_t *pool, ngx_array_t **codes,
     size_t size);
 void *ngx_http_script_add_code(ngx_array_t *codes, size_t size, void *code);
 
+ngx_int_t ngx_http_script_check_length(ngx_http_script_engine_t *e,
+    size_t len);
+
 size_t ngx_http_script_copy_len_code(ngx_http_script_engine_t *e);
 void ngx_http_script_copy_code(ngx_http_script_engine_t *e);
 size_t ngx_http_script_copy_var_len_code(ngx_http_script_engine_t *e);
@@ -261,7 +258,6 @@ void ngx_http_script_file_code(ngx_http_script_engine_t *e);
 void ngx_http_script_complex_value_code(ngx_http_script_engine_t *e);
 void ngx_http_script_value_code(ngx_http_script_engine_t *e);
 void ngx_http_script_set_var_code(ngx_http_script_engine_t *e);
-void ngx_http_script_var_set_handler_code(ngx_http_script_engine_t *e);
 void ngx_http_script_var_code(ngx_http_script_engine_t *e);
 void ngx_http_script_nop_code(ngx_http_script_engine_t *e);
 

@@ -197,7 +197,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
             break;
 
         default:
-            ngx_log_error(NGX_LOG_CRIT, cycle->log, ngx_socket_errno,
+            ngx_log_error(NGX_LOG_CRIT, cycle->log, 0,
                           "the inherited socket #%d has "
                           "an unsupported protocol family", ls[i].fd);
             ls[i].ignore = 1;

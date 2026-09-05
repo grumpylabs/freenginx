@@ -7,6 +7,648 @@
 <section title="freenginx">
 
 
+<changes ver="1.31.4" date="2026-09-01">
+
+<change type="bugfix">
+<para lang="ru">
+директива index использовала старые значения некэшируемых переменных.
+</para>
+<para lang="en">
+the "index" directive used old values of non-cacheable variables.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+переменные с побочными эффектами
+могли приводить к некорректным результатам при подстановке переменных
+и сообщениям "no buffer space in script copy".
+</para>
+<para lang="en">
+variables with side effects
+might cause incorrect results during variable substitution
+and "no buffer space in script copy" alerts.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании выделений в регулярных выражениях
+совместно с директивой proxy_cache_background_update
+или модулем ngx_http_slice_module
+в рабочем процессе мог произойти segmentation fault.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+when using regular expression captures
+with the "proxy_cache_background_update" directive
+or the ngx_http_slice_module.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_perl_module;
+ошибка появилась в 1.31.3.
+</para>
+<para lang="en">
+in the ngx_http_perl_module;
+the bug had appeared in 1.31.3.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании SSI совместно с проксированием
+в логах могли появляться сообщения "header already sent".
+</para>
+<para lang="en">
+"header already sent" alerts might appear in logs
+when using SSI with proxying.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании SSI и директивы gunzip
+часть данных, полученных от бэкенда при небуферизированном проксировании,
+могла не отправляться клиенту сразу.
+</para>
+<para lang="en">
+some data received from a backend with unbuffered proxying
+might not be sent to the client immediately
+when using SSI and the "gunzip" directive.
+</para>
+</change>
+
+<change type="change">
+<para lang="ru">
+теперь, если при буферизированном проксировании
+соединение с бэкендом завершается по таймауту,
+все ранее полученные от бэкенда данные отправляются клиенту.
+</para>
+<para lang="en">
+now, if a connection to a backend is closed due to a timeout
+during buffered proxying,
+all data previously received from the backend are sent to the client.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.31.3" date="2026-07-07">
+
+<change type="feature">
+<para lang="ru">
+теперь при подстановке переменных,
+в том числе при выполнении директив модуля ngx_http_rewrite_module,
+используются дополнительные проверки,
+позволяющие предотвратить выход за границы буфера
+в случае каких-либо ошибок в коде.
+</para>
+<para lang="en">
+additional checks are now used during variable substitution,
+including during execution of the ngx_http_rewrite_module directives,
+to prevent buffer overruns
+in case of errors in the code.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании директивы auth_request_set
+или именованных выделений в регулярных выражениях
+для изменения префиксных переменных, таких как "$http_...",
+соответствующие переменные оказывались пустыми в других частях конфигурации.
+</para>
+<para lang="en">
+if the "auth_request_set" directive
+or regular expression named captures
+were used to change prefix variables, such as "$http_...",
+corresponding variables became empty in other parts of the configuration.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+изменение переменных $limit_rate и $args
+с помощью директивы auth_request_set
+или именованных выделений в регулярных выражениях
+работало некорректно.
+</para>
+<para lang="en">
+changing the $limit_rate and $args variables
+with the "auth_request_set" directive
+or regular expression named captures
+worked incorrectly.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке ошибок в почтовом прокси-сервере.<br/>
+Спасибо Evan Hellman, Trail of Bits.
+</para>
+<para lang="en">
+in error handling in the mail proxy module.<br/>
+Thanks to Evan Hellman, Trail of Bits.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке ошибок при использовании сжатия.<br/>
+Спасибо Evan Hellman, Trail of Bits.
+</para>
+<para lang="en">
+in error handling when using gzipping.<br/>
+Thanks to Evan Hellman, Trail of Bits.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в HTTP/3.
+</para>
+<para lang="en">
+in HTTP/3.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault
+при отправке на gRPC-бэкенд очень длинных строк заголовка запроса.<br/>
+Спасибо Evan Hellman, Trail of Bits.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+when sending very long request header lines to a gRPC backend.<br/>
+Thanks to Evan Hellman, Trail of Bits.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если модуль ngx_http_charset_module использовался
+для перекодирования ответов из UTF-8.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the ngx_http_charset_module was used
+to convert responses from UTF-8.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_perl_module.<br/>
+Спасибо Evan Hellman, Trail of Bits
+и Axel Mierczuk, Keith Hoodlet, 1Password's Off-by-1 Labs.
+</para>
+<para lang="en">
+in the ngx_http_perl_module.<br/>
+Thanks to Evan Hellman, Trail of Bits
+and Axel Mierczuk, Keith Hoodlet, 1Password's Off-by-1 Labs.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке ошибок при использовании директивы proxy_no_cache.<br/>
+Спасибо Valentin Bartenev.
+</para>
+<para lang="en">
+in error handling when using the proxy_no_cache directive.<br/>
+Thanks to Valentin Bartenev.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.31.2" date="2026-05-26">
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если в директиве rewrite использовались вложенные выделения.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if nested captures were used in the "rewrite" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+директива if при проверке файлов некорректно обрабатывала относительные пути.
+</para>
+<para lang="en">
+the "if" directive incorrectly handled relative paths when checking files.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.31.1" date="2026-05-19">
+
+<change type="feature">
+<para lang="ru">
+параметр off в директиве index.<br/>
+Спасибо Fabiano Furtado.
+</para>
+<para lang="en">
+the "off" parameter of the "index" directive.<br/>
+Thanks to Fabiano Furtado.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если директива rewrite использовалась для изменения аргументов запроса
+и после неё выполнялись другие директивы модуля ngx_http_rewrite_module.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the "rewrite" directive was used to change request arguments
+and other directives of the ngx_http_rewrite_module were executed afterwards.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в директиве set.
+</para>
+<para lang="en">
+in the "set" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если модуль ngx_http_charset_module использовался
+для перекодирования ответов из UTF-8.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the ngx_http_charset_module was used
+to convert responses from UTF-8.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_charset_module.
+</para>
+<para lang="en">
+in the ngx_http_charset_module.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если использовалась директива ssl_ocsp.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the "ssl_ocsp" directive was used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если использовались директивы scgi_pass или uwsgi_pass.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the "scgi_pass" or "uwsgi_pass" directives were used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в директиве scgi_request_buffering.
+</para>
+<para lang="en">
+in the "scgi_request_buffering" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в HTTP/3.
+</para>
+<para lang="en">
+in HTTP/3.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.31.0" date="2026-05-05">
+
+<change type="change">
+<para lang="ru">
+теперь директиву try_files можно использовать
+с аргументами, начинающимися на URI запроса,
+внутри location, заданного регулярным выражением,
+вместе с директивой alias.
+</para>
+<para lang="en">
+now the "try_files" directive can be used
+with arguments starting with the request URI
+inside a location given by a regular expression,
+along with the "alias" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+директива try_files могла работать некорректно
+при совместном использовании с директивой alias.
+</para>
+<para lang="en">
+the "try_files" directive might work incorrectly
+when used with the "alias" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при совместном использовании директив try_files и proxy_pass
+в рабочем процессе мог произойти segmentation fault.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the "try_files" and "proxy_pass" directives were used together.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+после изменения URI запроса с помощью директивы try_files
+директива proxy_pass без URI
+могла использовать URI исходного запроса.
+</para>
+<para lang="en">
+the "proxy_pass" directive without a URI part
+might use the original request URI
+after the URI was changed by the "try_files" directive.
+</para>
+</change>
+
+<change type="change">
+<para lang="ru">
+уровень логгирования ошибок SSL
+"invalid ccs message", "not on record boundary",
+"required compression algorithm missing"
+и некоторых ошибок "record layer failure"
+понижен с уровня crit до info.
+</para>
+<para lang="en">
+the logging level of the
+"invalid ccs message", "not on record boundary",
+"required compression algorithm missing",
+and some "record layer failure" SSL errors
+has been lowered from "crit" to "info".
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.29.7" date="2026-03-31">
+
+<change type="feature">
+<para lang="ru">
+совместимость с OpenSSL 4.0.
+</para>
+<para lang="en">
+OpenSSL 4.0 compatibility.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если модуль ngx_http_dav_module использовался
+для обработки методов COPY и MOVE
+в location с директивой alias.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the ngx_http_dav_module was used
+to handle COPY and MOVE methods
+in a location with the "alias" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании директивы resolver в SMTP прокси-сервере
+имя хоста клиента не экранировалось
+при передаче на сервер аутентификации
+и в команде XCLIENT.
+</para>
+<para lang="en">
+client host name was not escaped
+in requests to the authentication server
+and in the XCLIENT command
+if the "resolver" directive was used in the SMTP proxy.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в почтовом прокси-сервере.
+</para>
+<para lang="en">
+in the mail proxy module.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.29.6" date="2026-03-10">
+
+<change type="bugfix">
+<para lang="ru">
+при использовании переменных в proxy_pass
+в лог могли попадать некорректные сообщения
+"upstream server temporarily disabled".
+</para>
+<para lang="en">
+incorrect "upstream server temporarily disabled"
+messages might be logged
+when using variables in the "proxy_pass" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+повторная отправка запроса на другой gRPC-бэкенд
+могла работать некорректно.<br/>
+Спасибо David Carlier.
+</para>
+<para lang="en">
+retrying a request to the next gRPC upstream server
+might not work correctly.<br/>
+Thanks to David Carlier.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если использовался модуль ngx_http_xslt_filter_module.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the ngx_http_xslt_filter_module was used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если использовался модуль ngx_http_mp4_module.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if the ngx_http_mp4_module was used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модулях ngx_http_uwsgi_module и ngx_http_scgi_module.
+</para>
+<para lang="en">
+in the ngx_http_uwsgi_module and ngx_http_scgi_module modules.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке ошибок выделения памяти.
+</para>
+<para lang="en">
+in memory allocation error handling.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.29.5" date="2026-02-10">
+
+<change type="feature">
+<para lang="ru">
+оптимизация использования SSL_sendfile() на FreeBSD.<br/>
+Спасибо Глебу Смирнову.
+</para>
+<para lang="en">
+optimized SSL_sendfile() usage on FreeBSD.<br/>
+Thanks to Gleb Smirnoff.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+бэкенды не признавались неработающими
+после получения ответа
+с кодом 500, 502, 503, 504 или 429,
+если соответствующий код был указан
+в директиве proxy_next_upstream,
+но передача запроса на другой сервер была невозможна.
+</para>
+<para lang="en">
+upstream servers were not marked as failed
+after a response
+with status code 500, 502, 503, 504, or 429
+if the code was listed in
+the "proxy_next_upstream" directive,
+but switching to the next server was not possible.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+расширение управления кэшированием stale-if-error не применялось,
+если бэкенд возвращал ответ
+с кодом 500, 502, 503, 504 или 429
+и соответствующий код был указан
+в директиве proxy_next_upstream.
+</para>
+<para lang="en">
+the "stale-if-error" cache control extension was not applied
+if a backend returned a response
+with status code 500, 502, 503, 504, or 429
+and the code was listed in
+the "proxy_next_upstream" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке преждевременных ответов бэкендов.
+</para>
+<para lang="en">
+in handling of premature backend responses.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.29.4" date="2025-12-16">
+
+<change type="feature">
+<para lang="ru">
+поддержка баз данных GeoIP2 в формате MaxMind DB (MMDB)
+в модулях ngx_http_geoip_module и ngx_stream_geoip_module;
+директива geoip_set.
+</para>
+<para lang="en">
+support for GeoIP2 databases in the MaxMind DB (MMDB) format
+in the ngx_http_geoip_module and ngx_stream_geoip_module modules;
+the "geoip_set" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+размер кэша на диске мог считаться некорректно
+при использовании файловой системы XFS с опцией монтирования "largeio".
+</para>
+<para lang="en">
+disk cache size might be calculated incorrectly
+on the XFS file system with the "largeio" mount option.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+незначительных потенциальных ошибок.
+</para>
+<para lang="en">
+of minor potential bugs.
+</para>
+</change>
+
+</changes>
+
+
 <changes ver="1.29.3" date="2025-11-11">
 
 <change type="feature">
@@ -746,7 +1388,7 @@ when a timeout occurred during reading a request body.
 
 <change type="bugfix">
 <para lang="ru">
-перенаправление ошибок 413 с помощью дерективы error_page
+перенаправление ошибок 413 с помощью директивы error_page
 работало некорректно при использовании HTTP/2 и HTTP/3.
 </para>
 <para lang="en">
@@ -25154,7 +25796,7 @@ nginx supports the request body size more than 2G.
 <change type="bugfix">
 <para lang="ru">
 если при использовании "satisfy_any on" клиент успешно проходил аутентификацию,
-в лог всё равно записалоcь сообщение "access forbidden by rule".
+в лог всё равно записалось сообщение "access forbidden by rule".
 </para>
 <para lang="en">
 if a client was successfully authorized using "satisfy_any on", then anyway
@@ -26740,7 +27382,7 @@ the "map" directive supports domain names in the ".domain.tld" form.
 
 <change type="bugfix">
 <para lang="ru">
-во время SSL handshake не иcпользовались таймауты;
+во время SSL handshake не использовались таймауты;
 ошибка появилась в 0.2.4.
 </para>
 <para lang="en">

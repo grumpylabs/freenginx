@@ -26,6 +26,8 @@ ngx_udp_wsarecv(ngx_connection_t *c, u_char *buf, size_t size)
 
     rc = WSARecv(c->fd, wsabuf, 1, &bytes, &flags, NULL, NULL);
 
+    err = ngx_socket_errno;
+
     ngx_log_debug4(NGX_LOG_DEBUG_EVENT, c->log, 0,
                    "WSARecv: fd:%d rc:%d %ul of %z", c->fd, rc, bytes, size);
 
@@ -33,7 +35,6 @@ ngx_udp_wsarecv(ngx_connection_t *c, u_char *buf, size_t size)
 
     if (rc == -1) {
         rev->ready = 0;
-        err = ngx_socket_errno;
 
         if (err == WSAEWOULDBLOCK) {
             ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, err,
@@ -112,13 +113,13 @@ ngx_udp_overlapped_wsarecv(ngx_connection_t *c, u_char *buf, size_t size)
     rc = WSARecv(c->fd, wsabuf, 1, &bytes, &flags, ovlp, NULL);
 
     rev->complete = 0;
+    err = ngx_socket_errno;
 
     ngx_log_debug4(NGX_LOG_DEBUG_EVENT, c->log, 0,
                    "WSARecv ovlp: fd:%d rc:%d %ul of %z",
                    c->fd, rc, bytes, size);
 
     if (rc == -1) {
-        err = ngx_socket_errno;
         if (err == WSA_IO_PENDING) {
             rev->active = 1;
             ngx_log_debug0(NGX_LOG_DEBUG_EVENT, c->log, err,

@@ -634,7 +634,7 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
 {
     off_t                         content_length_n;
     u_char                        ch, sep, *key, *val, *lowcase_key;
-    size_t                        len, key_len, val_len, allocated;
+    size_t                        len, params_len, key_len, val_len, allocated;
     ngx_buf_t                    *b;
     ngx_str_t                     content_length;
     ngx_uint_t                    i, n, hash, skip_empty, header_params;
@@ -649,11 +649,9 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
     u_char                        buffer[NGX_OFF_T_LEN];
 
     content_length_n = 0;
-    body = r->upstream->request_bufs;
 
-    while (body) {
-        content_length_n += ngx_buf_size(body->buf);
-        body = body->next;
+    if (r->headers_in.content_length_n > 0 && !r->discard_body) {
+        content_length_n = r->headers_in.content_length_n;
     }
 
     content_length.data = buffer;
@@ -661,6 +659,7 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
 
     len = sizeof("CONTENT_LENGTH") + content_length.len + 1;
 
+    params_len = 0;
     header_params = 0;
     ignored = NULL;
 
@@ -698,8 +697,10 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
                 continue;
             }
 
-            len += key_len + val_len + 1;
+            params_len += key_len + val_len + 1;
         }
+
+        len += params_len;
     }
 
     if (scf->upstream.pass_request_headers) {
@@ -814,6 +815,7 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
 
         e.ip = params->values->elts;
         e.pos = b->last;
+        e.end = b->last + params_len;
         e.request = r;
         e.flushed = 1;
 
@@ -852,6 +854,10 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
             code = *(ngx_http_script_code_pt *) e.ip;
             code((ngx_http_script_engine_t *) &e);
 
+            if (e.status) {
+                return NGX_ERROR;
+            }
+
 #if (NGX_DEBUG)
             val = e.pos;
 #endif
@@ -859,6 +865,15 @@ ngx_http_scgi_create_request(ngx_http_request_t *r)
                 code = *(ngx_http_script_code_pt *) e.ip;
                 code((ngx_http_script_engine_t *) &e);
             }
+
+            if (e.status) {
+                return NGX_ERROR;
+            }
+
+            if (ngx_http_script_check_length(&e, 1) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
             *e.pos++ = '\0';
             e.ip += sizeof(uintptr_t);
 
@@ -1016,6 +1031,8 @@ ngx_http_scgi_process_status_line(ngx_http_request_t *r)
 
     if (rc == NGX_ERROR) {
         u->process_header = ngx_http_scgi_process_header;
+        u->buffer.pos = status->line_start;
+        r->state = 0;
         return ngx_http_scgi_process_header(r);
     }
 
@@ -1840,9 +1857,8 @@ ngx_http_scgi_init_params(ngx_conf_t *cf, ngx_http_scgi_loc_conf_t *conf,
         copy->len = src[i].skip_empty;
 
 
-        size = (sizeof(ngx_http_script_copy_code_t)
-                + src[i].key.len + 1 + sizeof(uintptr_t) - 1)
-               & ~(sizeof(uintptr_t) - 1);
+        size = sizeof(ngx_http_script_copy_code_t)
+               + ngx_align(src[i].key.len + 1, sizeof(uintptr_t));
 
         copy = ngx_array_push_n(params->values, size);
         if (copy == NULL) {
@@ -1921,7 +1937,12 @@ ngx_http_scgi_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+
     clcf->handler = ngx_http_scgi_handler;
+
+    if (clcf->name.len && clcf->name.data[clcf->name.len - 1] == '/') {
+        clcf->auto_redirect = 1;
+    }
 
     value = cf->args->elts;
 
@@ -1956,10 +1977,6 @@ ngx_http_scgi_pass(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     scf->upstream.upstream = ngx_http_upstream_add(cf, &u, 0);
     if (scf->upstream.upstream == NULL) {
         return NGX_CONF_ERROR;
-    }
-
-    if (clcf->name.len && clcf->name.data[clcf->name.len - 1] == '/') {
-        clcf->auto_redirect = 1;
     }
 
     return NGX_CONF_OK;

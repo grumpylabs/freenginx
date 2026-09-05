@@ -201,6 +201,8 @@ ngx_create_temp_file(ngx_file_t *file, ngx_path_t *path, ngx_pool_t *pool,
 
         file->fd = ngx_open_tempfile(file->name.data, persistent, access);
 
+        err = ngx_errno;
+
         ngx_log_debug1(NGX_LOG_DEBUG_CORE, file->log, 0,
                        "temp fd:%d", file->fd);
 
@@ -215,8 +217,6 @@ ngx_create_temp_file(ngx_file_t *file, ngx_path_t *path, ngx_pool_t *pool,
 
             return NGX_OK;
         }
-
-        err = ngx_errno;
 
         if (err == NGX_EEXIST_FILE) {
             n = (uint32_t) ngx_next_temp_number(1);

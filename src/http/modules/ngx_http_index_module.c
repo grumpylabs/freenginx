@@ -120,12 +120,17 @@ ngx_http_index_handler(ngx_http_request_t *r)
     ilcf = ngx_http_get_module_loc_conf(r, ngx_http_index_module);
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
+    if (ilcf->indices == NULL) {
+        return NGX_DECLINED;
+    }
+
     allocated = 0;
     root = 0;
     dir_tested = 0;
     name = NULL;
     /* suppress MSVC warning */
     path.data = NULL;
+    e.status = 0;
 
     index = ilcf->indices->elts;
     for (i = 0; i < ilcf->indices->nelts; i++) {
@@ -144,6 +149,13 @@ ngx_http_index_handler(ngx_http_request_t *r)
 
             e.ip = index[i].lengths->elts;
             e.request = r;
+
+            while (*(uintptr_t *) e.ip) {
+                lcode = *(ngx_http_script_len_code_pt *) e.ip;
+                (void) lcode(&e);
+            }
+
+            e.ip = index[i].lengths->elts;
             e.flushed = 1;
 
             /* 1 is for terminating '\0' as in static names */
@@ -180,18 +192,29 @@ ngx_http_index_handler(ngx_http_request_t *r)
         } else {
             e.ip = index[i].values->elts;
             e.pos = name;
+            e.end = name + allocated;
+            e.flushed = 1;
 
             while (*(uintptr_t *) e.ip) {
                 code = *(ngx_http_script_code_pt *) e.ip;
                 code((ngx_http_script_engine_t *) &e);
             }
 
+            if (e.status) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            if (ngx_http_script_check_length(&e, 1) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
             if (*name == '/') {
-                uri.len = len - 1;
+                uri.len = e.pos - name;
                 uri.data = name;
                 return ngx_http_internal_redirect(r, &uri, &r->args);
             }
 
+            len = e.pos - name + 1;
             path.len = e.pos - path.data;
 
             *e.pos = '\0';
@@ -394,7 +417,7 @@ ngx_http_index_create_loc_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    conf->indices = NULL;
+    conf->indices = NGX_CONF_UNSET_PTR;
     conf->max_index_len = 0;
 
     return conf;
@@ -409,12 +432,12 @@ ngx_http_index_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_http_index_t  *index;
 
-    if (conf->indices == NULL) {
+    if (conf->indices == NGX_CONF_UNSET_PTR) {
         conf->indices = prev->indices;
         conf->max_index_len = prev->max_index_len;
     }
 
-    if (conf->indices == NULL) {
+    if (conf->indices == NGX_CONF_UNSET_PTR) {
         conf->indices = ngx_array_create(cf->pool, 1, sizeof(ngx_http_index_t));
         if (conf->indices == NULL) {
             return NGX_CONF_ERROR;
@@ -470,14 +493,29 @@ ngx_http_index_set_index(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_index_t           *index;
     ngx_http_script_compile_t   sc;
 
+    value = cf->args->elts;
+
+    if (cf->args->nelts == 2
+        && ngx_strcmp(value[1].data, "off") == 0)
+    {
+        if (ilcf->indices != NGX_CONF_UNSET_PTR) {
+            return "is duplicate";
+        }
+
+        ilcf->indices = NULL;
+        return NGX_CONF_OK;
+    }
+
     if (ilcf->indices == NULL) {
+        return "is duplicate";
+    }
+
+    if (ilcf->indices == NGX_CONF_UNSET_PTR) {
         ilcf->indices = ngx_array_create(cf->pool, 2, sizeof(ngx_http_index_t));
         if (ilcf->indices == NULL) {
             return NGX_CONF_ERROR;
         }
     }
-
-    value = cf->args->elts;
 
     for (i = 1; i < cf->args->nelts; i++) {
 
@@ -490,7 +528,7 @@ ngx_http_index_set_index(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         if (value[i].len == 0) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "index \"%V\" in \"index\" directive is invalid",
-                               &value[1]);
+                               &value[i]);
             return NGX_CONF_ERROR;
         }
 

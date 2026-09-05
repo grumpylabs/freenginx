@@ -284,7 +284,7 @@ ngx_poll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
 
     ready = WSAPoll(event_list, (u_int) nevents, (int) timer);
 
-    err = (ready == -1) ? ngx_errno : 0;
+    err = (ready == -1) ? ngx_socket_errno : 0;
 
     if (flags & NGX_UPDATE_TIME || ngx_event_timer_alarm) {
         ngx_time_update();

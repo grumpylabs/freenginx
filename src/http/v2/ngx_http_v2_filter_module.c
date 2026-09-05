@@ -237,6 +237,15 @@ ngx_http_v2_header_filter(ngx_http_request_t *r)
     }
 
     if (r->headers_out.content_type.len) {
+
+        if (r->headers_out.content_type.len > NGX_HTTP_V2_MAX_FIELD) {
+            ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
+                          "too long response header value: "
+                          "\"Content-Type: %*s...\"",
+                          256, r->headers_out.content_type.data);
+            return NGX_ERROR;
+        }
+
         len += 1 + NGX_HTTP_V2_INT_OCTETS + r->headers_out.content_type.len;
 
         if (r->headers_out.content_type_len == r->headers_out.content_type.len
@@ -333,6 +342,14 @@ ngx_http_v2_header_filter(ngx_http_request_t *r)
 
         r->headers_out.location->hash = 0;
 
+        if (r->headers_out.location->value.len > NGX_HTTP_V2_MAX_FIELD) {
+            ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
+                          "too long response header value: "
+                          "\"Location: %*s...\"",
+                          256, r->headers_out.location->value.data);
+            return NGX_ERROR;
+        }
+
         len += 1 + NGX_HTTP_V2_INT_OCTETS + r->headers_out.location->value.len;
     }
 
@@ -370,15 +387,15 @@ ngx_http_v2_header_filter(ngx_http_request_t *r)
 
         if (header[i].key.len > NGX_HTTP_V2_MAX_FIELD) {
             ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
-                          "too long response header name: \"%V\"",
-                          &header[i].key);
+                          "too long response header name: \"%*s...\"",
+                          256, header[i].key.data);
             return NGX_ERROR;
         }
 
         if (header[i].value.len > NGX_HTTP_V2_MAX_FIELD) {
             ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
-                          "too long response header value: \"%V: %V\"",
-                          &header[i].key, &header[i].value);
+                          "too long response header value: \"%V: %*s...\"",
+                          &header[i].key, 256, header[i].value.data);
             return NGX_ERROR;
         }
 
@@ -778,15 +795,15 @@ ngx_http_v2_create_trailers_frame(ngx_http_request_t *r)
 
         if (header[i].key.len > NGX_HTTP_V2_MAX_FIELD) {
             ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
-                          "too long response trailer name: \"%V\"",
-                          &header[i].key);
+                          "too long response trailer name: \"%*s...\"",
+                          256, header[i].key.data);
             return NULL;
         }
 
         if (header[i].value.len > NGX_HTTP_V2_MAX_FIELD) {
             ngx_log_error(NGX_LOG_CRIT, fc->log, 0,
-                          "too long response trailer value: \"%V: %V\"",
-                          &header[i].key, &header[i].value);
+                          "too long response trailer value: \"%V: %*s...\"",
+                          &header[i].key, 256, header[i].value.data);
             return NULL;
         }
 

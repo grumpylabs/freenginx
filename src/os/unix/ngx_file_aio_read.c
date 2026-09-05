@@ -153,11 +153,12 @@ ngx_file_aio_result(ngx_file_t *file, ngx_event_aio_t *aio, ngx_event_t *ev)
 
     n = aio_error(&aio->aiocb);
 
+    err = ngx_errno;
+
     ngx_log_debug2(NGX_LOG_DEBUG_CORE, file->log, 0,
                    "aio_error: fd:%d %d", file->fd, n);
 
     if (n == -1) {
-        err = ngx_errno;
         aio->err = err;
 
         ngx_log_error(NGX_LOG_ALERT, file->log, err,

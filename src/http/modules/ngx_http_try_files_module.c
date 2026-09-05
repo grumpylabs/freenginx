@@ -111,6 +111,10 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
 
     alias = clcf->alias;
 
+    if (alias == NGX_MAX_SIZE_T_VALUE) {
+        alias = r->uri.len;
+    }
+
     for ( ;; ) {
 
         if (tf->lengths) {
@@ -118,6 +122,14 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
 
             e.ip = tf->lengths->elts;
             e.request = r;
+
+            while (*(uintptr_t *) e.ip) {
+                lcode = *(ngx_http_script_len_code_pt *) e.ip;
+                (void) lcode(&e);
+            }
+
+            e.ip = tf->lengths->elts;
+            e.flushed = 1;
 
             /* 1 is for terminating '\0' as in static names */
             len = 1;
@@ -133,9 +145,6 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
 
         if (!alias) {
             reserve = len > r->uri.len ? len - r->uri.len : 0;
-
-        } else if (alias == NGX_MAX_SIZE_T_VALUE) {
-            reserve = len;
 
         } else {
             reserve = len > r->uri.len - alias ? len - (r->uri.len - alias) : 0;
@@ -164,6 +173,7 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
         } else {
             e.ip = tf->values->elts;
             e.pos = name;
+            e.end = name + (r->uri.len - alias) + allocated;
             e.flushed = 1;
 
             while (*(uintptr_t *) e.ip) {
@@ -171,25 +181,22 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
                 code((ngx_http_script_engine_t *) &e);
             }
 
+            if (e.status) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+
+            if (ngx_http_script_check_length(&e, 1) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
             path.len = e.pos - path.data;
 
             *e.pos = '\0';
-
-            if (alias && alias != NGX_MAX_SIZE_T_VALUE
-                && ngx_strncmp(name, r->uri.data, alias) == 0)
-            {
-                ngx_memmove(name, name + alias, len - alias);
-                path.len -= alias;
-            }
         }
 
         test_dir = tf->test_dir;
 
         tf++;
-
-        ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "trying to use %s: \"%s\" \"%s\"",
-                       test_dir ? "dir" : "file", name, path.data);
 
         if (tf->lengths == NULL && tf->name.len == 0) {
 
@@ -212,6 +219,15 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
             ngx_http_finalize_request(r, NGX_DONE);
             return NGX_DONE;
         }
+
+        if (alias && ngx_filename_cmp(name, r->uri.data, alias) == 0) {
+            ngx_memmove(name, name + alias, len - alias);
+            path.len -= alias;
+        }
+
+        ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "trying to use %s: \"%s\" \"%s\"",
+                       test_dir ? "dir" : "file", name, path.data);
 
         ngx_memzero(&of, sizeof(ngx_open_file_info_t));
 
@@ -252,18 +268,13 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
         path.len -= root;
         path.data += root;
 
+        name = r->uri.data;
+        len = r->uri.len;
+
         if (!alias) {
             r->uri = path;
 
-        } else if (alias == NGX_MAX_SIZE_T_VALUE) {
-            if (!test_dir) {
-                r->uri = path;
-                r->add_uri_to_alias = 1;
-            }
-
         } else {
-            name = r->uri.data;
-
             r->uri.len = alias + path.len;
             r->uri.data = ngx_pnalloc(r->pool, r->uri.len);
             if (r->uri.data == NULL) {
@@ -273,6 +284,36 @@ ngx_http_try_files_handler(ngx_http_request_t *r)
 
             p = ngx_copy(r->uri.data, name, alias);
             ngx_memcpy(p, path.data, path.len);
+
+            r->alias_in_uri = alias;
+        }
+
+        if (r->valid_location) {
+
+            /*
+             * clear r->valid_location if the new URI
+             * does not match location prefix
+             */
+
+            if (r->uri.len < clcf->name.len
+                || ngx_filename_cmp(r->uri.data, clcf->name.data,
+                                    clcf->name.len)
+                   != 0)
+            {
+                r->valid_location = 0;
+                r->valid_unparsed_uri = 0;
+            }
+        }
+
+        if (r->valid_unparsed_uri) {
+
+            /* clear r->valid_unparsed_uri if URI was changed */
+
+            if (r->uri.len != len
+                || ngx_strncmp(r->uri.data, name, len) != 0)
+            {
+                r->valid_unparsed_uri = 0;
+            }
         }
 
         ngx_http_set_exten(r);

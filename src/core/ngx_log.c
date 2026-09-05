@@ -387,8 +387,9 @@ ngx_log_check_rate(ngx_log_t *log, ngx_uint_t level)
 ngx_log_t *
 ngx_log_init(u_char *prefix, u_char *error_log)
 {
-    u_char  *p, *name;
-    size_t   nlen, plen;
+    u_char     *p, *name;
+    size_t      nlen, plen;
+    ngx_err_t   err;
 
     ngx_log.file = &ngx_log_file;
     ngx_log.log_level = NGX_LOG_NOTICE;
@@ -448,11 +449,13 @@ ngx_log_init(u_char *prefix, u_char *error_log)
                                     NGX_FILE_DEFAULT_ACCESS);
 
     if (ngx_log_file.fd == NGX_INVALID_FILE) {
-        ngx_log_stderr(ngx_errno,
+        err = ngx_errno;
+
+        ngx_log_stderr(err,
                        "[alert] could not open error log file: "
                        ngx_open_file_n " \"%s\" failed", name);
 #if (NGX_WIN32)
-        ngx_event_log(ngx_errno,
+        ngx_event_log(err,
                        "could not open error log file: "
                        ngx_open_file_n " \"%s\" failed", name);
 #endif

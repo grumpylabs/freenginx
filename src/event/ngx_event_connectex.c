@@ -176,7 +176,7 @@ void ngx_iocp_wait_events(int main)
             if (PostQueuedCompletionStatus(iocp, 0, NGX_IOCP_CONNECT,
                                            &conn[n].write->ovlp) == 0)
             {
-                ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno,
+                ngx_log_error(NGX_LOG_ALERT, log, ngx_errno,
                               "PostQueuedCompletionStatus() failed");
                 continue;
             }

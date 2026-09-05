@@ -4465,13 +4465,13 @@ ngx_udp_connect(ngx_resolver_connection_t *rec)
 
     s = ngx_socket(rec->sockaddr->sa_family, SOCK_DGRAM, 0);
 
-    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &rec->log, 0, "UDP socket %d", s);
-
     if (s == (ngx_socket_t) -1) {
         ngx_log_error(NGX_LOG_ALERT, &rec->log, ngx_socket_errno,
                       ngx_socket_n " failed");
         return NGX_ERROR;
     }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &rec->log, 0, "UDP socket %d", s);
 
     c = ngx_get_connection(s, &rec->log);
 
@@ -4553,13 +4553,13 @@ ngx_tcp_connect(ngx_resolver_connection_t *rec)
 
     s = ngx_socket(rec->sockaddr->sa_family, SOCK_STREAM, 0);
 
-    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &rec->log, 0, "TCP socket %d", s);
-
     if (s == (ngx_socket_t) -1) {
         ngx_log_error(NGX_LOG_ALERT, &rec->log, ngx_socket_errno,
                       ngx_socket_n " failed");
         return NGX_ERROR;
     }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &rec->log, 0, "TCP socket %d", s);
 
     c = ngx_get_connection(s, &rec->log);
 

@@ -540,23 +540,36 @@ ngx_http_xslt_sax_error(void *data, const char *msg, ...)
 {
     xmlParserCtxtPtr ctxt = data;
 
-    size_t                       n;
+    int                          n;
     va_list                      args;
+    ngx_uint_t                   truncated;
     ngx_http_xslt_filter_ctx_t  *ctx;
-    u_char                       buf[NGX_MAX_ERROR_STR];
+    u_char                       buf[NGX_MAX_CONF_ERRSTR];
 
     ctx = ctxt->sax->_private;
 
     buf[0] = '\0';
+    truncated = 0;
 
     va_start(args, msg);
-    n = (size_t) vsnprintf((char *) buf, NGX_MAX_ERROR_STR, msg, args);
+    n = vsnprintf((char *) buf, NGX_MAX_CONF_ERRSTR, msg, args);
     va_end(args);
 
-    while (--n && (buf[n] == CR || buf[n] == LF)) { /* void */ }
+    if (n < 0) {
+        n = 0;
+        truncated = 1;
+    }
+
+    if (n >= NGX_MAX_CONF_ERRSTR) {
+        n = NGX_MAX_CONF_ERRSTR - 1;
+        truncated = 1;
+    }
+
+    while (n && (buf[n - 1] == CR || buf[n - 1] == LF)) { n--; }
 
     ngx_log_error(NGX_LOG_ERR, ctx->request->connection->log, 0,
-                  "libxml2 error: \"%*s\"", n + 1, buf);
+                  "libxml2 error: \"%*s%s\"",
+                  (size_t) n, buf, truncated ? "..." : "");
 }
 
 

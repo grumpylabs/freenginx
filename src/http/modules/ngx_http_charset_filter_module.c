@@ -630,7 +630,7 @@ ngx_http_charset_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 b->shadow->pos = b->shadow->last;
             }
 
-            if (b->pos) {
+            if (b->start) {
                 cl->next = ctx->free_buffers;
                 ctx->free_buffers = cl;
                 continue;
@@ -788,8 +788,8 @@ ngx_http_charset_recode_from_utf8(ngx_pool_t *pool, ngx_buf_t *buf,
 
     p = src;
 
-    for (i = ctx->saved_len; i < NGX_UTF_LEN; i++) {
-        ctx->saved[i] = *p++;
+    for (i = ctx->saved_len; i < NGX_UTF_LEN; /* void */) {
+        ctx->saved[i++] = *p++;
 
         if (p == buf->last) {
             break;
@@ -821,13 +821,12 @@ ngx_http_charset_recode_from_utf8(ngx_pool_t *pool, ngx_buf_t *buf,
 
             b = out->buf;
 
-            b->pos = buf->pos;
+            b->pos = buf->last;
             b->last = buf->last;
             b->sync = 1;
             b->shadow = buf;
 
-            ngx_memcpy(&ctx->saved[ctx->saved_len], src, i);
-            ctx->saved_len += i;
+            ctx->saved_len = i;
 
             return out;
         }
@@ -865,6 +864,10 @@ ngx_http_charset_recode_from_utf8(ngx_pool_t *pool, ngx_buf_t *buf,
 
         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, pool->log, 0,
                        "http charset invalid utf 1");
+
+        while (saved < ctx->saved + ctx->saved_len) {
+            *dst++ = *saved++;
+        }
 
     } else {
         dst = ngx_sprintf(dst, "&#%uD;", n);
@@ -1095,15 +1098,23 @@ recode:
 static ngx_chain_t *
 ngx_http_charset_get_buf(ngx_pool_t *pool, ngx_http_charset_ctx_t *ctx)
 {
+    ngx_buf_t    *b;
     ngx_chain_t  *cl;
 
     cl = ctx->free_bufs;
 
     if (cl) {
         ctx->free_bufs = cl->next;
-
-        cl->buf->shadow = NULL;
         cl->next = NULL;
+
+        b = cl->buf;
+
+        b->temporary = 0;
+        b->memory = 0;
+        b->mmap = 0;
+        b->flush = 0;
+        b->sync = 0;
+        b->shadow = NULL;
 
         return cl;
     }
@@ -1145,6 +1156,7 @@ ngx_http_charset_get_buffer(ngx_pool_t *pool, ngx_http_charset_ctx_t *ctx,
 
             b->pos = b->start;
             b->temporary = 1;
+            b->sync = 0;
             b->shadow = NULL;
 
             return cl;
@@ -1337,11 +1349,17 @@ ngx_http_charset_map(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     if (ctx->charset->utf8) {
         p = &table->src2dst[src * NGX_UTF_LEN];
 
+        if (value[1].len / 2 > NGX_UTF_LEN - 1) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "invalid value \"%V\"", &value[1]);
+            return NGX_CONF_ERROR;
+        }
+
         *p++ = (u_char) (value[1].len / 2);
 
         for (i = 0; i < value[1].len; i += 2) {
             dst = ngx_hextoi(&value[1].data[i], 2);
-            if (dst == NGX_ERROR || dst > 255) {
+            if (dst == NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                    "invalid value \"%V\"", &value[1]);
                 return NGX_CONF_ERROR;

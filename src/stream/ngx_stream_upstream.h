@@ -61,9 +61,6 @@ typedef struct {
     ngx_uint_t                         down;
 
     unsigned                           backup:1;
-
-    NGX_COMPAT_BEGIN(4)
-    NGX_COMPAT_END
 } ngx_stream_upstream_server_t;
 
 

@@ -165,7 +165,10 @@ NGX_PERL=perl
 
 USE_LIBXSLT=NO
 USE_LIBGD=NO
+
 USE_GEOIP=NO
+GEOIP_LEGACY=YES
+GEOIP_MMDB=YES
 
 NGX_GOOGLE_PERFTOOLS=NO
 NGX_CPP_TEST=NO
@@ -405,6 +408,9 @@ $0: warning: the \"--with-sha1-asm\" option is deprecated"
         --with-libatomic)                NGX_LIBATOMIC=YES          ;;
         --with-libatomic=*)              NGX_LIBATOMIC="$value"     ;;
 
+        --without-geoip)                 GEOIP_LEGACY=DISABLED      ;;
+        --without-libmaxminddb)          GEOIP_MMDB=DISABLED        ;;
+
         --test-build-devpoll)            NGX_TEST_BUILD_DEVPOLL=YES ;;
         --test-build-eventport)          NGX_TEST_BUILD_EVENTPORT=YES ;;
         --test-build-epoll)              NGX_TEST_BUILD_EPOLL=YES   ;;
@@ -600,6 +606,9 @@ cat << END
 
   --with-openssl=DIR                 set path to OpenSSL library sources
   --with-openssl-opt=OPTIONS         set additional build options for OpenSSL
+
+  --without-geoip                    do not use GeoIP library
+  --without-libmaxminddb             do not use libmaxminddb library
 
   --with-debug                       enable debug logging
 

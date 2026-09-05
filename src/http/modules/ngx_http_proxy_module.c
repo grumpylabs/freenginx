@@ -1253,11 +1253,11 @@ static ngx_int_t
 ngx_http_proxy_create_request(ngx_http_request_t *r)
 {
     u_char                       *key;
-    size_t                        len, uri_len, loc_len, body_len,
+    size_t                        len, uri_len, loc_len, body_len, headers_len,
                                   key_len, val_len;
     uintptr_t                     escape;
     ngx_buf_t                    *b;
-    ngx_str_t                     method;
+    ngx_str_t                     method, uri, args;
     ngx_uint_t                    i, unparsed_uri;
     ngx_chain_t                  *cl, *body;
     ngx_list_part_t              *part;
@@ -1307,6 +1307,13 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     escape = 0;
     loc_len = 0;
     unparsed_uri = 0;
+    body_len = 0;
+    headers_len = 0;
+
+#if (NGX_SUPPRESS_WARN)
+    ngx_str_null(&uri);
+    ngx_str_null(&args);
+#endif
 
     if (plcf->proxy_lengths && ctx->vars.uri.len) {
         uri_len = ctx->vars.uri.len;
@@ -1319,13 +1326,16 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         loc_len = (r->valid_location && ctx->vars.uri.len) ?
                       plcf->location.len : 0;
 
+        uri = r->uri;
+        args = r->args;
+
         if (r->quoted_uri || r->internal) {
-            escape = 2 * ngx_escape_uri(NULL, r->uri.data + loc_len,
-                                        r->uri.len - loc_len, NGX_ESCAPE_URI);
+            escape = 2 * ngx_escape_uri(NULL, uri.data + loc_len,
+                                        uri.len - loc_len, NGX_ESCAPE_URI);
         }
 
-        uri_len = ctx->vars.uri.len + r->uri.len - loc_len + escape
-                  + sizeof("?") - 1 + r->args.len;
+        uri_len = ctx->vars.uri.len + uri.len - loc_len + escape
+                  + sizeof("?") - 1 + args.len;
     }
 
     if (uri_len == 0) {
@@ -1338,14 +1348,12 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
 
     ngx_memzero(&le, sizeof(ngx_http_script_engine_t));
 
-    ngx_http_script_flush_no_cacheable_variables(r, plcf->body_flushes);
-    ngx_http_script_flush_no_cacheable_variables(r, headers->flushes);
-
     if (plcf->body_lengths) {
+        ngx_http_script_flush_no_cacheable_variables(r, plcf->body_flushes);
+
         le.ip = plcf->body_lengths->elts;
         le.request = r;
         le.flushed = 1;
-        body_len = 0;
 
         while (*(uintptr_t *) le.ip) {
             lcode = *(ngx_http_script_len_code_pt *) le.ip;
@@ -1366,6 +1374,8 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         ctx->internal_body_length = r->headers_in.content_length_n;
     }
 
+    ngx_http_script_flush_no_cacheable_variables(r, headers->flushes);
+
     le.ip = headers->lengths->elts;
     le.request = r;
     le.flushed = 1;
@@ -1384,8 +1394,10 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             continue;
         }
 
-        len += key_len + sizeof(": ") - 1 + val_len + sizeof(CRLF) - 1;
+        headers_len += key_len + sizeof(": ") - 1 + val_len + sizeof(CRLF) - 1;
     }
+
+    len += headers_len;
 
 
     if (plcf->upstream.pass_request_headers) {
@@ -1448,18 +1460,17 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         }
 
         if (escape) {
-            ngx_escape_uri(b->last, r->uri.data + loc_len,
-                           r->uri.len - loc_len, NGX_ESCAPE_URI);
-            b->last += r->uri.len - loc_len + escape;
+            ngx_escape_uri(b->last, uri.data + loc_len,
+                           uri.len - loc_len, NGX_ESCAPE_URI);
+            b->last += uri.len - loc_len + escape;
 
         } else {
-            b->last = ngx_copy(b->last, r->uri.data + loc_len,
-                               r->uri.len - loc_len);
+            b->last = ngx_copy(b->last, uri.data + loc_len, uri.len - loc_len);
         }
 
-        if (r->args.len > 0) {
+        if (args.len > 0) {
             *b->last++ = '?';
-            b->last = ngx_copy(b->last, r->args.data, r->args.len);
+            b->last = ngx_copy(b->last, args.data, args.len);
         }
     }
 
@@ -1478,6 +1489,7 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
 
     e.ip = headers->values->elts;
     e.pos = b->last;
+    e.end = b->last + headers_len;
     e.request = r;
     e.flushed = 1;
 
@@ -1518,6 +1530,14 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             ctx->upgrade = 1;
         }
 
+        if (e.status) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_http_script_check_length(&e, 2) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
         *e.pos++ = ':'; *e.pos++ = ' ';
 
         while (*(uintptr_t *) e.ip) {
@@ -1525,6 +1545,14 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             code((ngx_http_script_engine_t *) &e);
         }
         e.ip += sizeof(uintptr_t);
+
+        if (e.status) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_http_script_check_length(&e, 2) != NGX_OK) {
+            return NGX_ERROR;
+        }
 
         *e.pos++ = CR; *e.pos++ = LF;
     }
@@ -1576,11 +1604,16 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     if (plcf->body_values) {
         e.ip = plcf->body_values->elts;
         e.pos = b->last;
+        e.end = b->last + body_len;
         e.skip = 0;
 
         while (*(uintptr_t *) e.ip) {
             code = *(ngx_http_script_code_pt *) e.ip;
             code((ngx_http_script_engine_t *) &e);
+        }
+
+        if (e.status) {
+            return NGX_ERROR;
         }
 
         b->last = e.pos;
@@ -1861,6 +1894,8 @@ ngx_http_proxy_process_status_line(ngx_http_request_t *r)
 
         u->headers_in.status_n = 200;
         u->headers_in.connection_close = 1;
+
+        u->buffer.pos = ctx->status.line_start;
 
         return NGX_OK;
     }
@@ -4092,9 +4127,8 @@ ngx_http_proxy_init_headers(ngx_conf_t *cf, ngx_http_proxy_loc_conf_t *conf,
                                                  ngx_http_script_copy_len_code;
         copy->len = src[i].key.len;
 
-        size = (sizeof(ngx_http_script_copy_code_t)
-                + src[i].key.len + sizeof(uintptr_t) - 1)
-               & ~(sizeof(uintptr_t) - 1);
+        size = sizeof(ngx_http_script_copy_code_t)
+               + ngx_align(src[i].key.len, sizeof(uintptr_t));
 
         copy = ngx_array_push_n(headers->values, size);
         if (copy == NULL) {

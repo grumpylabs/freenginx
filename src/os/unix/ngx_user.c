@@ -46,9 +46,8 @@ ngx_libc_crypt(ngx_pool_t *pool, u_char *key, u_char *salt, u_char **encrypted)
 ngx_int_t
 ngx_libc_crypt(ngx_pool_t *pool, u_char *key, u_char *salt, u_char **encrypted)
 {
-    char       *value;
-    size_t      len;
-    ngx_err_t   err;
+    char    *value;
+    size_t   len;
 
     value = crypt((char *) key, (char *) salt);
 
@@ -64,9 +63,7 @@ ngx_libc_crypt(ngx_pool_t *pool, u_char *key, u_char *salt, u_char **encrypted)
         return NGX_OK;
     }
 
-    err = ngx_errno;
-
-    ngx_log_error(NGX_LOG_CRIT, pool->log, err, "crypt() failed");
+    ngx_log_error(NGX_LOG_CRIT, pool->log, ngx_errno, "crypt() failed");
 
     return NGX_ERROR;
 }

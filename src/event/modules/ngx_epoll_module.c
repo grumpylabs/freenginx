@@ -980,6 +980,8 @@ ngx_epoll_eventfd_handler(ngx_event_t *ev)
 
         events = io_getevents(ngx_aio_ctx, 1, 64, event, &ts);
 
+        err = ngx_errno;
+
         ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ev->log, 0,
                        "io_getevents: %d", events);
 
@@ -1013,7 +1015,7 @@ ngx_epoll_eventfd_handler(ngx_event_t *ev)
         }
 
         /* events == -1 */
-        ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_errno,
+        ngx_log_error(NGX_LOG_ALERT, ev->log, err,
                       "io_getevents() failed");
         return;
     }

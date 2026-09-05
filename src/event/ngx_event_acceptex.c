@@ -106,15 +106,14 @@ ngx_event_post_acceptex(ngx_listening_t *ls, ngx_uint_t n)
 
         s = ngx_socket(ls->sockaddr->sa_family, ls->type, 0);
 
-        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &ls->log, 0,
-                       ngx_socket_n " s:%d", s);
-
         if (s == (ngx_socket_t) -1) {
             ngx_log_error(NGX_LOG_ALERT, &ls->log, ngx_socket_errno,
                           ngx_socket_n " failed");
-
             return NGX_ERROR;
         }
+
+        ngx_log_debug1(NGX_LOG_DEBUG_EVENT, &ls->log, 0,
+                       ngx_socket_n " s:%d", s);
 
         c = ngx_get_connection(s, &ls->log);
 
