@@ -100,7 +100,16 @@ jobs:
       - name: Install and validate shipped config
         run: |
           make install
-          "$GITHUB_WORKSPACE/_install/sbin/nginx" -t
+          PREFIX="$GITHUB_WORKSPACE/_install"
+
+          # `nginx -t` does not only parse the config -- it also opens the
+          # listening sockets. The shipped default config listens on :80, which
+          # a non-root Linux runner cannot bind (macOS permits it, which is why
+          # this only fails on one leg). Move it to a high port so this step
+          # validates the config rather than the runner's privileges.
+          sed -i.bak 's/listen  *80;/listen 8899;/' "$PREFIX/conf/nginx.conf"
+
+          "$PREFIX/sbin/nginx" -p "$PREFIX" -c "$PREFIX/conf/nginx.conf" -t
 
       - name: Smoke test
         run: |
